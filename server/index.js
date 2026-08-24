@@ -99,6 +99,30 @@ function publicUser(user) {
   return { id: user.id, email: user.email, name: user.name, department: user.department, status: user.status, role: user.role, active: user.active }
 }
 
+function isGlobalUser(user) {
+  return user?.role === 'admin' || ['Coordenação', 'Administrativo'].includes(user?.department)
+}
+
+async function fetchChannelAccounts(channel) {
+  const isOfficial = channel === 'official'
+  const baseUrl = (isOfficial ? process.env.OFFICIAL_API_UPSTREAM_URL : process.env.HUB_API_BASE_URL || process.env.VITE_HUB_API_BASE_URL || 'https://whatsapp.prosperargroup.com.br/api/v1').replace(/\/$/, '')
+  const url = `${baseUrl}${isOfficial ? '/api/v1' : ''}/accounts`
+  const token = isOfficial ? process.env.OFFICIAL_API_TOKEN || process.env.VITE_OFFICIAL_API_TOKEN : process.env.HUB_API_TOKEN || process.env.VITE_HUB_API_TOKEN
+  const headers = { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+  const upstreamResponse = await fetch(url, { headers })
+  if (!upstreamResponse.ok) throw new Error(`Não foi possível carregar contas do canal ${channel}.`)
+  const payload = await upstreamResponse.json()
+  return Array.isArray(payload?.accounts) ? payload.accounts : []
+}
+
+async function allowedAccounts(user, channel) {
+  const accounts = await fetchChannelAccounts(channel)
+  if (isGlobalUser(user)) return accounts
+  const mappings = await sql`SELECT account_id FROM account_departments WHERE channel = ${channel} AND department = ${user.department}`
+  const allowed = new Set(mappings.map((mapping) => String(mapping.account_id)))
+  return accounts.filter((account) => allowed.has(String(account.id)))
+}
+
 app.post('/api/auth/login', async (request, response) => {
   const email = String(request.body?.email || '').trim().toLowerCase()
   const password = String(request.body?.password || '')
@@ -138,9 +162,44 @@ app.post('/api/auth/register', async (request, response) => {
   return response.status(201).json({ user: publicUser(result[0]), message: 'Cadastro enviado para aprovação.' })
 })
 
+app.get('/api/accounts', requireAuth, async (request, response) => {
+  const channel = String(request.query.channel || 'hub')
+  if (!['hub', 'official'].includes(channel)) return response.status(400).json({ error: 'Canal inválido.' })
+  try { return response.json({ accounts: await allowedAccounts(request.user, channel) }) } catch (error) { return response.status(502).json({ error: error.message }) }
+})
+
 app.get('/api/admin/users', requireAuth, requireAdmin, async (_request, response) => {
   const result = await sql`SELECT id, email, name, department, status, role, active, created_at FROM users ORDER BY created_at DESC`
   return response.json({ users: result.map(publicUser) })
+})
+
+app.get('/api/admin/account-departments', requireAuth, requireAdmin, async (_request, response) => {
+  const [hub, official, mappings] = await Promise.all([
+    fetchChannelAccounts('hub'),
+    fetchChannelAccounts('official'),
+    sql`SELECT channel, account_id AS "accountId", account_name AS "accountName", department FROM account_departments ORDER BY department, channel, account_name`,
+  ])
+  return response.json({ accounts: { hub, official }, mappings })
+})
+
+app.put('/api/admin/account-departments', requireAuth, requireAdmin, async (request, response) => {
+  const channel = String(request.body?.channel || '')
+  const accountId = String(request.body?.accountId || '')
+  const accountName = String(request.body?.accountName || '')
+  const department = String(request.body?.department || '')
+  if (!['hub', 'official'].includes(channel) || !accountId || !DEPARTMENTS.includes(department)) return response.status(400).json({ error: 'Canal, conta e setor são obrigatórios.' })
+  const result = await sql`
+    INSERT INTO account_departments (channel, account_id, account_name, department)
+    VALUES (${channel}, ${accountId}, ${accountName}, ${department})
+    ON CONFLICT (channel, account_id) DO UPDATE SET account_name = EXCLUDED.account_name, department = EXCLUDED.department, updated_at = NOW()
+    RETURNING channel, account_id AS "accountId", account_name AS "accountName", department
+  `
+  return response.json({ mapping: result[0] })
+})
+
+app.delete('/api/admin/account-departments/:channel/:accountId', requireAuth, requireAdmin, async (request, response) => {
+  await sql`DELETE FROM account_departments WHERE channel = ${request.params.channel} AND account_id = ${request.params.accountId}`
+  return response.status(204).end()
 })
 
 app.patch('/api/admin/users/:userId', requireAuth, requireAdmin, async (request, response) => {

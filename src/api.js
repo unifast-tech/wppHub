@@ -13,6 +13,11 @@ const CHANNELS = {
 export const ATTENDANT_NAME = import.meta.env.VITE_ATTENDANT_NAME || ''
 const DEMO_MODE = String(import.meta.env.VITE_DEMO_MODE || '').toLowerCase() === 'true'
 
+function authHeaders() {
+  const token = window.localStorage.getItem('wpphub.auth.token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 const demoMessages = [
   { id: '1', direction: 'inbound', text: 'Oi! Gostaria de saber mais sobre os planos.', timestamp: '2026-08-17T12:41:00-03:00', status: 'read' },
   { id: '2', direction: 'outbound', text: 'Olá, Maria! Claro. Hoje temos opções a partir de R$ 89 por mês. Posso te ajudar a encontrar o plano ideal?', timestamp: '2026-08-17T12:42:00-03:00', status: 'read' },
@@ -23,13 +28,18 @@ const demoMessages = [
 function normalizeMessage(message, index) {
   const rawDirection = message.direcao ?? message.direction ?? message.type ?? message.fromMe ?? message.from_me
   const outbound = rawDirection === true || ['enviada', 'outbound', 'sent', 'outgoing', 'from_me'].includes(String(rawDirection).toLowerCase())
+  const isReaction = String(message.tipo ?? message.type ?? '').toLowerCase() === 'reacao'
+  const reactionTarget = message.reagiu_a ?? message.reaction ?? null
   const rawAttachment = message.anexo ?? message.attachment ?? null
   return {
     id: String(message.id ?? message.messageId ?? message.message_id ?? index),
     direction: outbound ? 'outbound' : 'inbound',
-    text: message.texto ?? message.text ?? message.body ?? message.content ?? message.message ?? '',
+    text: isReaction ? '' : message.texto ?? message.text ?? message.body ?? message.content ?? message.message ?? '',
     timestamp: message.em ?? message.timestamp ?? message.createdAt ?? message.created_at ?? message.date ?? null,
     status: message.status ?? (outbound ? 'sent' : 'read'),
+    isReaction,
+    reaction: isReaction ? (message.texto ?? message.text ?? '') : '',
+    reactionTargetId: isReaction ? String(reactionTarget?.id ?? reactionTarget?.messageId ?? reactionTarget?.message_id ?? '') : '',
     attachment: rawAttachment ? {
       type: String(rawAttachment.tipo ?? rawAttachment.type ?? '').toLowerCase(),
       mime: rawAttachment.mime ?? rawAttachment.mimeType ?? rawAttachment.mimetype ?? '',
@@ -40,6 +50,17 @@ function normalizeMessage(message, index) {
       url: rawAttachment.url ?? rawAttachment.href ?? '',
     } : null,
   }
+}
+
+function attachReactions(messages) {
+  const reactions = messages.filter((message) => message.isReaction && message.reactionTargetId)
+  const messageIds = new Set(messages.filter((message) => !message.isReaction).map((message) => message.id))
+  return messages
+    .filter((message) => !message.isReaction || !messageIds.has(message.reactionTargetId))
+    .map((message) => {
+      const reaction = reactions.find((item) => item.reactionTargetId === message.id)
+      return reaction ? { ...message, reaction: reaction.reaction, reactionId: reaction.id } : message
+    })
 }
 
 function sortMessagesChronologically(messages) {
@@ -64,7 +85,7 @@ function normalizeConversation(payload, phone) {
       phone: contact.phone ?? conversation?.telefone ?? conversation?.phone ?? root?.telefone ?? root?.phone ?? phone,
       avatar: contact.avatar ?? contact.picture ?? conversation?.avatar ?? null,
     },
-    messages: Array.isArray(messages) ? sortMessagesChronologically(messages.map(normalizeMessage)) : [],
+    messages: Array.isArray(messages) ? attachReactions(sortMessagesChronologically(messages.map(normalizeMessage))) : [],
     windowOpen: root?.janela_aberta ?? conversation?.janela_aberta ?? null,
   }
 }
@@ -106,6 +127,12 @@ async function parseError(response) {
 
 export async function getAccounts(channel, signal) {
   if (DEMO_MODE) return [{ id: 'demo-account', name: 'Suporte UniFast', numero: '5584999998888', conectado: true }]
+  if (window.localStorage.getItem('wpphub.auth.token')) {
+    const response = await fetch(`/api/accounts?channel=${encodeURIComponent(channel)}`, { signal, headers: { Accept: 'application/json', ...authHeaders() } })
+    if (!response.ok) throw await parseError(response)
+    const payload = await response.json()
+    return Array.isArray(payload?.accounts) ? payload.accounts : []
+  }
   const config = configFor(channel)
   if (!config.token && channel !== 'official') throw new Error('Configure VITE_HUB_API_TOKEN com a chave wah_...')
   const response = await fetch(`${config.baseUrl}/accounts`, { signal, headers: headers(channel) })

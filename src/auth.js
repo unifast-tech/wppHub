@@ -70,6 +70,25 @@ export async function resetAdminUserPassword(userId) {
   return payload
 }
 
+export async function getAccountDepartments() {
+  const response = await fetch('/api/admin/account-departments', { headers: { Accept: 'application/json', ...authHeaders() } })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(payload?.error || 'Não foi possível carregar as permissões.')
+  return payload
+}
+
+export async function setAccountDepartment(mapping) {
+  const response = await fetch('/api/admin/account-departments', { method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(mapping) })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(payload?.error || 'Não foi possível salvar a permissão.')
+  return payload.mapping
+}
+
+export async function removeAccountDepartment(channel, accountId) {
+  const response = await fetch(`/api/admin/account-departments/${channel}/${encodeURIComponent(accountId)}`, { method: 'DELETE', headers: authHeaders() })
+  if (!response.ok) throw new Error('Não foi possível remover a permissão.')
+}
+
 export function logout() {
   window.localStorage.removeItem(AUTH_TOKEN_KEY)
   window.localStorage.removeItem(AUTH_USER_KEY)

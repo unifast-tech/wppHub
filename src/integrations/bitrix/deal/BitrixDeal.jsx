@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileText, Image as ImageIcon, LogOut, MessageCircle, Mic, Send, X } from 'lucide-react'
+import { Download, FileText, Image as ImageIcon, LogOut, MessageCircle, Mic, Send, Settings as SettingsIcon, X } from 'lucide-react'
 import { authHeaders, getAuthSession, login, logout, registerUser } from '../../../auth'
 import { getBitrixDealContext, resizeBitrixWindow } from '../../../bitrix'
 import { getAccounts, getAttachment, getConversation, normalizeBrazilianPhone, sendMessage } from '../../../api'
@@ -43,9 +43,9 @@ function formatFileSize(bytes) {
 function MessageAttachment({ attachment, channel }) {
   const [source, setSource] = useState('')
   const [failed, setFailed] = useState(false)
-  const supported = ['image', 'sticker', 'audio', 'document'].includes(attachment?.type)
+  const supported = ['image', 'sticker', 'video', 'audio', 'document'].includes(attachment?.type)
   const AttachmentIcon = attachment?.type === 'audio' ? Mic : attachment?.type === 'document' ? FileText : ImageIcon
-  const label = attachment?.type === 'audio' ? 'áudio' : attachment?.type === 'document' ? 'documento' : attachment?.type === 'sticker' ? 'figurinha' : 'imagem'
+  const label = attachment?.type === 'audio' ? 'áudio' : attachment?.type === 'document' ? 'documento' : attachment?.type === 'video' ? 'vídeo' : attachment?.type === 'sticker' ? 'figurinha' : 'imagem'
 
   useEffect(() => {
     if (!supported || !attachment.url || attachment.ready === false) return undefined
@@ -70,6 +70,10 @@ function MessageAttachment({ attachment, channel }) {
   if (!attachment.url) return <div className="attachment-state error-state"><AttachmentIcon size={18} />{label.charAt(0).toUpperCase() + label.slice(1)} sem URL disponível.</div>
   if (failed) return <div className="attachment-state error-state"><AttachmentIcon size={18} />Não foi possível carregar o {label}.</div>
   if (!source) return <div className="attachment-state"><AttachmentIcon size={18} />Carregando {label}...</div>
+  if (attachment.type === 'video') return <figure className="message-attachment message-video">
+    <video src={source} controls preload="metadata">Seu navegador não suporta reprodução de vídeo.</video>
+    <a href={source} download={attachment.name || 'video.mp4'} aria-label="Baixar vídeo"><Download size={15} />Baixar</a>
+  </figure>
   if (attachment.type === 'audio') return <figure className="message-attachment message-audio">
     <div className="audio-label"><Mic size={17} /><span>{attachment.name || 'Mensagem de áudio'}</span></div>
     <audio src={source} controls preload="metadata">Seu navegador não suporta reprodução de áudio.</audio>
@@ -88,7 +92,12 @@ function MessageAttachment({ attachment, channel }) {
 
 function mergeMessages(current, incoming) {
   const incomingMessages = [...incoming.messages]
-  const currentMessages = current.messages.filter((message) => {
+  const reactionMessages = incomingMessages.filter((message) => message.isReaction && message.reactionTargetId)
+  const currentWithReactions = current.messages.map((message) => {
+    const reaction = reactionMessages.find((item) => item.reactionTargetId === message.id)
+    return reaction ? { ...message, reaction: reaction.reaction, reactionId: reaction.id } : message
+  })
+  const currentMessages = currentWithReactions.filter((message) => {
     if (!message.optimistic) return true
     const matchingIndex = incomingMessages.findIndex((candidate) => candidate.direction === 'outbound' && candidate.text === message.text)
     if (matchingIndex === -1) return true
@@ -96,7 +105,7 @@ function mergeMessages(current, incoming) {
     return false
   })
   const messagesById = new Map(currentMessages.map((message) => [message.id, message]))
-  incomingMessages.forEach((message) => messagesById.set(message.id, message))
+  incomingMessages.filter((message) => !message.isReaction).forEach((message) => messagesById.set(message.id, message))
   return {
     ...current,
     ...incoming,
@@ -182,6 +191,7 @@ function MessageList({ conversation, channel }) {
         {message.attachment && <MessageAttachment attachment={message.attachment} channel={channel} />}
         {(message.text || !message.attachment) && <p>{message.text || 'Mensagem sem conteúdo textual'}</p>}
         <span className="meta">{formatTime(message.timestamp)}</span>
+        {message.reaction && <span className="message-reaction" title="Reação à mensagem">{message.reaction}</span>}
       </div>
     </div>)}
   </div>
@@ -382,7 +392,7 @@ export default function BitrixDeal() {
   return <main className="bitrix-page">
     <header className="bitrix-header">
       <div><span className="eyebrow">Negócio Bitrix24</span><h1>{context?.dealTitle || 'Conversas do negócio'}</h1><p>{context?.contactName || 'Contato'} · {conversation?.contact.phone}</p></div>
-      <div className="bitrix-header-actions">{session.user?.role === 'admin' && <a className="bitrix-admin-link" href="/admin/users">Usuários</a>}<button className="bitrix-logout" type="button" onClick={() => { logout(); setSession(null) }}><LogOut size={15} />Sair</button></div>
+      <div className="bitrix-header-actions"><a className="settings-button" href="/settings" aria-label="Configurações" title="Configurações"><SettingsIcon size={17} /></a><button className="bitrix-logout" type="button" onClick={() => { logout(); setSession(null) }}><LogOut size={15} />Sair</button></div>
     </header>
     <section className="bitrix-conversation">
       <div className="bitrix-conversation-bar">

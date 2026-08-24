@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Check, CheckCheck, ChevronDown, Download, FileText, Image as ImageIcon, Inbox, Layers3, MessageCircle, Mic, Phone, RefreshCw, Search, Send, UserRound, Wifi, X } from 'lucide-react'
+import { Check, CheckCheck, ChevronDown, Download, FileText, Image as ImageIcon, Inbox, Layers3, MessageCircle, Mic, Phone, RefreshCw, Search, Send, Settings as SettingsIcon, UserRound, Wifi, X } from 'lucide-react'
+import AuthScreen from './auth-ui/AuthScreen'
+import { getAuthSession, logout } from './auth'
 import { ATTENDANT_NAME, cleanPhone, getAccounts, getAttachment, getConversation, getConversations, normalizeBrazilianPhone, sendMessage } from './api'
 
 function formatPhone(value) {
@@ -51,9 +53,9 @@ function formatFileSize(bytes) {
 function MessageAttachment({ attachment, channel }) {
   const [source, setSource] = useState('')
   const [failed, setFailed] = useState(false)
-  const supported = ['image', 'sticker', 'audio', 'document'].includes(attachment?.type)
+  const supported = ['image', 'sticker', 'video', 'audio', 'document'].includes(attachment?.type)
   const AttachmentIcon = attachment?.type === 'audio' ? Mic : attachment?.type === 'document' ? FileText : ImageIcon
-  const label = attachment?.type === 'audio' ? 'áudio' : attachment?.type === 'document' ? 'documento' : attachment?.type === 'sticker' ? 'figurinha' : 'imagem'
+  const label = attachment?.type === 'audio' ? 'áudio' : attachment?.type === 'document' ? 'documento' : attachment?.type === 'video' ? 'vídeo' : attachment?.type === 'sticker' ? 'figurinha' : 'imagem'
   const capitalizedLabel = `${label.charAt(0).toUpperCase()}${label.slice(1)}`
 
   useEffect(() => {
@@ -79,6 +81,10 @@ function MessageAttachment({ attachment, channel }) {
   if (!attachment.url) return <div className="attachment-state error-state"><AttachmentIcon size={18} />{capitalizedLabel} sem URL disponível.</div>
   if (failed) return <div className="attachment-state error-state"><AttachmentIcon size={18} />Não foi possível carregar o {label}.</div>
   if (!source) return <div className="attachment-state"><AttachmentIcon size={18} />Carregando {label}...</div>
+  if (attachment.type === 'video') return <figure className="message-attachment message-video">
+    <video src={source} controls preload="metadata">Seu navegador não suporta reprodução de vídeo.</video>
+    <a href={source} download={attachment.name || 'video.mp4'} aria-label="Baixar vídeo"><Download size={15} />Baixar</a>
+  </figure>
   if (attachment.type === 'audio') return <figure className="message-attachment message-audio">
     <div className="audio-label"><Mic size={17} /><span>{attachment.name || 'Mensagem de áudio'}</span></div>
     <audio src={source} controls preload="metadata">Seu navegador não suporta reprodução de áudio.</audio>
@@ -101,7 +107,12 @@ function MessageAttachment({ attachment, channel }) {
 function mergeConversation(current, incoming) {
   if (!current) return incoming
   const unmatchedIncoming = [...incoming.messages]
-  const currentMessages = current.messages.filter((message) => {
+  const reactionMessages = unmatchedIncoming.filter((message) => message.isReaction && message.reactionTargetId)
+  const currentWithReactions = current.messages.map((message) => {
+    const reaction = reactionMessages.find((item) => item.reactionTargetId === message.id)
+    return reaction ? { ...message, reaction: reaction.reaction, reactionId: reaction.id } : message
+  })
+  const currentMessages = currentWithReactions.filter((message) => {
     if (!message.optimistic) return true
     const matchingIndex = unmatchedIncoming.findIndex((candidate) => (
       candidate.direction === 'outbound' && candidate.text === message.text
@@ -111,7 +122,7 @@ function mergeConversation(current, incoming) {
     return false
   })
   const messagesById = new Map(currentMessages.map((message) => [message.id, message]))
-  incoming.messages.forEach((message) => messagesById.set(message.id, message))
+  incoming.messages.filter((message) => !message.isReaction).forEach((message) => messagesById.set(message.id, message))
   const messages = [...messagesById.values()].sort((a, b) => {
     const first = new Date(a.timestamp).getTime()
     const second = new Date(b.timestamp).getTime()
@@ -188,6 +199,7 @@ function ConversationMessages({ thread, messagesRef }) {
             {message.attachment && <MessageAttachment attachment={message.attachment} channel={thread.channel} />}
             <p><LinkifiedText text={message.text || (message.attachment ? '' : 'Mensagem sem conteúdo textual')} /></p>
             <span className="meta">{formatTime(message.timestamp)}{message.direction === 'outbound' && <StatusIcon status={message.status} />}</span>
+            {message.reaction && <span className="message-reaction" title="Reação à mensagem">{message.reaction}</span>}
           </div>
         </div>
       </Fragment>
@@ -207,6 +219,7 @@ function safeTimestamp(value) {
 }
 
 export default function App() {
+  const [session, setSession] = useState(() => getAuthSession())
   const [activeView, setActiveView] = useState('student')
   const [phone, setPhone] = useState('')
   const [threads, setThreads] = useState([])
@@ -316,10 +329,12 @@ export default function App() {
 
     async function loadInbox() {
       try {
-        const accounts = await getAccounts('hub', controller.signal)
-        const results = await Promise.allSettled(accounts.map(async (account) => ({
+        const accountGroups = await Promise.all(['hub', 'official'].map(async (channel) => ({ channel, accounts: await getAccounts(channel, controller.signal) })))
+        const accountLookups = accountGroups.flatMap(({ channel, accounts }) => accounts.map((account) => ({ channel, account })))
+        const results = await Promise.allSettled(accountLookups.map(async ({ channel, account }) => ({
+          channel,
           account,
-          conversations: await getConversations('hub', account.id, controller.signal),
+          conversations: await getConversations(channel, account.id, controller.signal),
         })))
         if (controller.signal.aborted) return
 
@@ -327,16 +342,16 @@ export default function App() {
         const items = []
         results.forEach((result, index) => {
           if (result.status === 'rejected') {
-            if (result.reason?.name !== 'AbortError') failures.push(`${accounts[index]?.name || 'Conta'}: ${result.reason?.message || 'falha ao listar conversas'}`)
+            if (result.reason?.name !== 'AbortError') failures.push(`${accountLookups[index]?.account.name || 'Conta'}: ${result.reason?.message || 'falha ao listar conversas'}`)
             return
           }
           result.value.conversations.forEach((conversation) => {
-            const id = `${result.value.account.id}:${conversation.phone}`
+            const id = `${result.value.channel}:${result.value.account.id}:${conversation.phone}`
             items.push({
               ...conversation,
               id,
               unreadCount: readInboxIdsRef.current.has(id) ? 0 : conversation.unreadCount,
-              channel: 'hub',
+              channel: result.value.channel,
               account: result.value.account,
             })
           })
@@ -368,12 +383,12 @@ export default function App() {
     const controller = new AbortController()
     setInboxThreadLoading(true)
     setInboxSendError('')
-    getConversation('hub', selectedInboxItem.phone, selectedInboxItem.account.id, controller.signal)
+    getConversation(selectedInboxItem.channel, selectedInboxItem.phone, selectedInboxItem.account.id, controller.signal)
       .then((conversation) => {
         const contactName = conversation.contact.name === 'Contato' ? selectedInboxItem.name : conversation.contact.name
         setInboxThread({
           id: selectedInboxItem.id,
-          channel: 'hub',
+          channel: selectedInboxItem.channel,
           account: selectedInboxItem.account,
           conversation: { ...conversation, contact: { ...conversation.contact, name: contactName } },
         })
@@ -396,7 +411,7 @@ export default function App() {
         if (!current) return
         const messagesWithTimestamp = current.conversation.messages.filter((message) => message.timestamp)
         const since = messagesWithTimestamp.at(-1)?.timestamp || ''
-        const incoming = await getConversation('hub', current.conversation.contact.phone, current.account.id, controller.signal, since)
+        const incoming = await getConversation(current.channel, current.conversation.contact.phone, current.account.id, controller.signal, since)
         setInboxThread((latest) => latest ? { ...latest, conversation: mergeConversation(latest.conversation, incoming) } : latest)
         const latestMessage = incoming.messages.at(-1)
         if (latestMessage) {
@@ -570,7 +585,7 @@ export default function App() {
     setInboxSendError('')
     try {
       const result = await sendMessage({
-        channel: 'hub',
+        channel: inboxThread.channel,
         phone: inboxThread.conversation.contact.phone,
         accountId: inboxThread.account.id,
         text,
@@ -617,6 +632,8 @@ export default function App() {
     }
   }
 
+  if (!session) return <AuthScreen onLogin={setSession} />
+
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-mark"><MessageCircle size={24} /></span><span>Campuzz <span>Conversas</span></span></div>
@@ -624,7 +641,7 @@ export default function App() {
         <button className={activeView === 'student' ? 'active' : ''} type="button" onClick={() => setActiveView('student')}><UserRound size={16} />Histórico do aluno</button>
         <button className={activeView === 'inbox' ? 'active' : ''} type="button" onClick={() => setActiveView('inbox')}><Inbox size={16} />Caixa de conversas</button>
       </nav>
-      <div className="connection"><Wifi size={15} /><span>Hub + API Oficial</span></div>
+      <div className="topbar-actions"><div className="connection"><Wifi size={15} /><span>{session.user?.name || 'Usuário'}</span></div><a className="settings-button" href="/settings" aria-label="Configurações" title="Configurações"><SettingsIcon size={17} /></a><button className="settings-button" type="button" aria-label="Sair" title="Sair" onClick={() => { logout(); setSession(null) }}><X size={17} /></button></div>
     </header>
 
     {activeView === 'student' ? <main>
