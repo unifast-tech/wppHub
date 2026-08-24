@@ -38,7 +38,7 @@ export default function Users() {
   if (!session || session.user?.role !== 'admin') return <main className="admin-page"><div className="empty-state"><UserRound size={28} /><h2>Acesso restrito</h2><p>Entre com a conta administradora para acessar este painel.</p></div></main>
 
   return <main className="admin-page">
-    <header className="admin-header"><div><span className="eyebrow">Administração</span><h1>Usuários da aplicação</h1><p>Aprove acessos e gerencie os departamentos da equipe.</p></div><a href="/integrations/bitrix/deal" className="admin-back"><ArrowLeft size={15} />Voltar</a></header>
+    <header className="admin-header"><div><span className="eyebrow">Administração</span><h1>Usuários da aplicação</h1><p>Aprove acessos e gerencie os departamentos da equipe.</p></div><button type="button" onClick={() => window.history.length > 1 ? window.history.back() : window.location.assign('/')} className="admin-back"><ArrowLeft size={15} />Voltar</button></header>
     {error && <div className="error" role="alert"><X size={15} />{error}</div>}
     {temporaryPassword && <div className="admin-reset-notice">Senha temporária para <strong>{temporaryPassword.email}</strong>: <code>{temporaryPassword.temporaryPassword}</code><button type="button" onClick={() => setTemporaryPassword(null)}>Fechar</button></div>}
     <section className="admin-table-wrap">

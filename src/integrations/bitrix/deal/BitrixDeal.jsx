@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, FileText, Image as ImageIcon, LogOut, MessageCircle, Mic, Send, Settings as SettingsIcon, X } from 'lucide-react'
+import AuthScreen from '../../../auth-ui/AuthScreen'
 import { authHeaders, getAuthSession, login, logout, registerUser } from '../../../auth'
 import { getBitrixDealContext, resizeBitrixWindow } from '../../../bitrix'
 import { getAccounts, getAttachment, getConversation, normalizeBrazilianPhone, sendMessage } from '../../../api'
@@ -385,7 +386,7 @@ export default function BitrixDeal() {
     }
   }
 
-  if (!session) return <LoginScreen onLogin={setSession} />
+  if (!session) return <AuthScreen onLogin={setSession} />
   if (loading) return <main className="bitrix-page"><div className="loader"><span /><p>Carregando negócio e conversa...</p></div></main>
   if (error && !context) return <main className="bitrix-page"><div className="empty-state"><div className="empty-icon"><X size={28} /></div><h2>Não foi possível carregar este Deal</h2><p>{error}</p></div></main>
 
