@@ -242,6 +242,7 @@ export default function BitrixDeal() {
         })
         if (controller.signal.aborted) return
         setContext(dealContext)
+        window.sessionStorage.setItem('wpphub.bitrix.deal.context', JSON.stringify(dealContext))
         setChannels(available)
         const phone = normalizeBrazilianPhone(dealContext.phone)
         if (!/^55\d{10,11}$/.test(phone)) throw new Error('O contato do negócio não possui um telefone brasileiro válido.')
@@ -414,7 +415,7 @@ export default function BitrixDeal() {
   return <main className="bitrix-page">
     <header className="bitrix-header">
       <div><span className="eyebrow">Negócio Bitrix24</span><h1>{context?.dealTitle || 'Conversas do negócio'}</h1><p>{context?.contactName || 'Contato'} · {conversation?.contact.phone}</p></div>
-      <div className="bitrix-header-actions"><a className="settings-button" href="/settings" aria-label="Configurações" title="Configurações"><SettingsIcon size={17} /></a><button className="bitrix-logout" type="button" onClick={() => { logout(); setSession(null) }}><LogOut size={15} />Sair</button></div>
+      <div className="bitrix-header-actions"><a className="settings-button" href={`/settings?deal_id=${encodeURIComponent(context?.dealId || '')}`} aria-label="Configurações" title="Configurações"><SettingsIcon size={17} /></a><button className="bitrix-logout" type="button" onClick={() => { logout(); setSession(null) }}><LogOut size={15} />Sair</button></div>
     </header>
     <section className="bitrix-conversation">
       <div className="bitrix-conversation-bar">

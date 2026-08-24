@@ -70,7 +70,10 @@ function firstPhone(fields) {
 export async function getBitrixDealContext() {
   const sdk = await loadSdk()
   await initSdk(sdk)
-  const placement = window.__BITRIX_PLACEMENT_CONTEXT__ || await new Promise((resolve, reject) => {
+  const queryDealId = new URLSearchParams(window.location.search).get('deal_id') || ''
+  const cachedContext = window.sessionStorage.getItem('wpphub.bitrix.deal.context')
+  const fallbackContext = cachedContext ? (() => { try { return JSON.parse(cachedContext) } catch { return null } })() : null
+  const placement = window.__BITRIX_PLACEMENT_CONTEXT__ || (queryDealId ? { options: { ID: queryDealId } } : null) || (fallbackContext ? { options: { ID: fallbackContext.dealId } } : null) || await new Promise((resolve, reject) => {
     const timeoutId = window.setTimeout(() => reject(new Error('O Bitrix24 não forneceu o contexto deste Deal.')), 10000)
     try {
       sdk.placement.info((info) => {
@@ -83,7 +86,7 @@ export async function getBitrixDealContext() {
     }
   })
   const options = readPlacementOptions(placement)
-  const dealId = options.ID || options.id || placement?.ID || new URLSearchParams(window.location.search).get('deal_id') || ''
+  const dealId = options.ID || options.id || placement?.ID || queryDealId || fallbackContext?.dealId || ''
   if (!dealId) throw new Error('Não foi possível identificar o negócio aberto no Bitrix24.')
 
   const dealResult = await callMethod(sdk, 'crm.item.get', { entityTypeId: 2, id: dealId })

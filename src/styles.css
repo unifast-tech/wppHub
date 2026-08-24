@@ -113,10 +113,12 @@ h1 { font: 800 clamp(28px, 4vw, 40px) 'Manrope', sans-serif; letter-spacing: -1.
   .bitrix-conversation-bar { align-items: flex-start; flex-direction: column; }
   .bitrix-selects { width: 100%; flex-direction: column; }
 .bitrix-selects select { width: 100%; }
-.bitrix-conversation-picker { display: flex; align-items: flex-end; gap: 8px; }
-.bitrix-conversation-picker label { display: flex; flex-direction: column; gap: 4px; color: #53635b; font-size: 10px; font-weight: 700; }
-.bitrix-conversation-picker select { min-width: 230px; height: 36px; padding: 0 9px; border: 1px solid #ccd7d1; border-radius: 8px; color: #26332d; background: white; }
+.bitrix-conversation-picker { min-width: min(390px, 42%); display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid #d4e2da; border-radius: 10px; background: white; box-shadow: 0 3px 10px #274a3b0d; }
+.bitrix-conversation-picker label { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; color: #53635b; font-size: 10px; font-weight: 700; }
+.bitrix-conversation-picker label::after { content: 'Escolha qual histórico usar neste negócio'; color: #91a098; font-size: 9px; font-weight: 400; }
+.bitrix-conversation-picker select { width: 210px; height: 34px; padding: 0 9px; border: 1px solid #bcd2c4; border-radius: 8px; color: #176f49; background: #f7fcf8; font-size: 11px; font-weight: 700; }
 .bitrix-conversation-picker select:focus { border-color: #168b58; outline: 0; box-shadow: 0 0 0 3px #168b5818; }
+@media (max-width: 760px) { .bitrix-conversation-picker { width: 100%; min-width: 0; } .bitrix-conversation-picker select { flex: 1; width: auto; } }
 }
 .channel-picker { width: fit-content; display: flex; gap: 4px; margin: 0 0 20px; padding: 4px; background: #e5ebe7; border: 1px solid #d8e0db; border-radius: 13px; }
 .channel-picker button { min-width: 155px; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 13px; border: 0; border-radius: 9px; color: #6d7b74; background: transparent; cursor: pointer; }
