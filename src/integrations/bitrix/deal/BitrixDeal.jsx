@@ -205,6 +205,7 @@ export default function BitrixDeal() {
   const [channel, setChannel] = useState('hub')
   const [accountId, setAccountId] = useState('')
   const [conversation, setConversation] = useState(null)
+  const [conversationOptions, setConversationOptions] = useState([])
   const [lockedAccount, setLockedAccount] = useState(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -246,14 +247,8 @@ export default function BitrixDeal() {
         if (!/^55\d{10,11}$/.test(phone)) throw new Error('O contato do negócio não possui um telefone brasileiro válido.')
         const linked = await getConversationLink(dealContext.dealId, controller.signal)
         const lookups = []
-        if (linked) {
-          const linkedAccount = available[linked.channel]?.find((account) => String(account.id) === String(linked.accountId))
-          if (!linkedAccount) throw new Error('O dispositivo vinculado a este negócio não está disponível.')
-          lookups.push({ channel: linked.channel, account: linkedAccount })
-        } else {
-          for (const item of ['hub', 'official']) {
-            for (const account of available[item]) lookups.push({ channel: item, account })
-          }
+        for (const item of ['hub', 'official']) {
+          for (const account of available[item]) lookups.push({ channel: item, account })
         }
         const histories = await Promise.allSettled(lookups.map(async (lookup) => ({ ...lookup, conversation: await getConversation(lookup.channel, phone, lookup.account.id, controller.signal) })))
         const found = histories
@@ -261,16 +256,18 @@ export default function BitrixDeal() {
           .map((result) => result.value)
           .sort((first, second) => new Date(second.conversation.messages.at(-1)?.timestamp).getTime() - new Date(first.conversation.messages.at(-1)?.timestamp).getTime())
         if (found.length || linked) {
-          const selected = found[0] || {
+          const linkedOption = linked && found.find((item) => item.channel === linked.channel && String(item.account.id) === String(linked.accountId))
+          const selected = found[0] || linkedOption || {
             channel: linked.channel,
-            account: available[linked.channel].find((account) => String(account.id) === String(linked.accountId)),
+            account: available[linked.channel]?.find((account) => String(account.id) === String(linked.accountId)),
             conversation: { contact: { name: dealContext.contactName || 'Contato', phone }, messages: [] },
           }
+          setConversationOptions(found)
           setConversation(selected.conversation)
           setLockedAccount(selected.account)
           setChannel(selected.channel)
           setAccountId(String(selected.account.id))
-          if (!linked) {
+          if (!linked || linked.channel !== selected.channel || String(linked.accountId) !== String(selected.account.id)) {
             await saveConversationLink(dealContext.dealId, {
               contactId: dealContext.contactId,
               phone,
@@ -279,6 +276,7 @@ export default function BitrixDeal() {
             })
           }
         } else {
+          setConversationOptions([])
           const firstChannel = available.hub.length ? 'hub' : 'official'
           setChannel(firstChannel)
           setAccountId(String(available[firstChannel][0]?.id || ''))
@@ -350,6 +348,29 @@ export default function BitrixDeal() {
     }
   }
 
+  async function handleConversationChange(event) {
+    const option = conversationOptions[Number(event.target.value)]
+    if (!option || !context) return
+    setDeviceLoading(true)
+    setError('')
+    try {
+      setChannel(option.channel)
+      setAccountId(String(option.account.id))
+      setConversation(option.conversation)
+      setLockedAccount(option.account)
+      await saveConversationLink(context.dealId, {
+        contactId: context.contactId,
+        phone: option.conversation.contact.phone,
+        channel: option.channel,
+        accountId: option.account.id,
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDeviceLoading(false)
+    }
+  }
+
   async function handleSend(event) {
     event.preventDefault()
     if (!activeAccount || !conversation || !draft.trim() || sending || deviceLoading) return
@@ -397,7 +418,8 @@ export default function BitrixDeal() {
     </header>
     <section className="bitrix-conversation">
       <div className="bitrix-conversation-bar">
-        <div><strong>{showDeviceSelector ? 'Escolha o dispositivo' : 'Dispositivo da conversa'}</strong><span>{activeAccount ? accountLabel(activeAccount) : 'Nenhum dispositivo disponível'}</span></div>
+        <div><strong>{conversationOptions.length > 1 ? 'Conversas encontradas' : showDeviceSelector ? 'Escolha o dispositivo' : 'Dispositivo da conversa'}</strong><span>{activeAccount ? accountLabel(activeAccount) : 'Nenhum dispositivo disponível'}</span></div>
+        {conversationOptions.length > 1 && <div className="bitrix-conversation-picker"><label htmlFor="bitrix-conversation-choice">Conversa usada</label><select id="bitrix-conversation-choice" disabled={deviceLoading} value={conversationOptions.findIndex((item) => item.channel === channel && String(item.account.id) === String(accountId))} onChange={handleConversationChange}>{conversationOptions.map((item, index) => <option key={`${item.channel}-${item.account.id}`} value={index}>{CHANNEL_LABELS[item.channel]} · {accountLabel(item.account)}</option>)}</select></div>}
         {!showDeviceSelector && <div className="bitrix-device-status"><small>{CHANNEL_LABELS[channel]} · dispositivo fixado</small>{canSwitchDevice && <button type="button" onClick={() => setSwitchingDevice(true)}>Trocar dispositivo</button>}</div>}
         {showDeviceSelector && <div className="bitrix-selects"><select value={channel} disabled={deviceLoading} onChange={(event) => { const nextChannel = event.target.value; const nextAccountId = String(channels[nextChannel][0]?.id || ''); handleDeviceChange(nextChannel, nextAccountId) }}><option value="hub">WhatsApp Hub</option><option value="official">API Oficial</option></select><select value={accountId} disabled={deviceLoading} onChange={(event) => handleDeviceChange(channel, event.target.value)}><option value="">Selecione o dispositivo</option>{channels[channel].map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></div>}
       </div>
