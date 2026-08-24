@@ -72,6 +72,18 @@ h1 { font: 800 clamp(28px, 4vw, 40px) 'Manrope', sans-serif; letter-spacing: -1.
 .settings-tabs { display: flex; gap: 6px; margin: 0 0 18px; padding: 5px; width: fit-content; border: 1px solid #dbe4df; border-radius: 12px; background: #edf3ef; }
 .settings-tabs button { border: 0; border-radius: 8px; padding: 9px 15px; color: #64736b; background: transparent; font-size: 12px; font-weight: 700; cursor: pointer; }
 .settings-tabs button.active { color: #176f49; background: white; box-shadow: 0 2px 8px #294b3b18; }
+.settings-tab-link { display: inline-flex; align-items: center; padding: 0 15px; color: #64736b; font-size: 12px; font-weight: 700; text-decoration: none; }
+.settings-tab-link:hover { color: #176f49; }
+.activity-list { display: grid; gap: 9px; }
+.activity-item { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 18px; border: 1px solid #d5ded9; border-left: 4px solid #9bbcac; border-radius: 12px; background: white; box-shadow: 0 5px 16px #274a3b0b; }
+.activity-item.success { border-left-color: #168b58; }
+.activity-item.warning { border-left-color: #c38a36; }
+.activity-item.error { border-left-color: #b84d4d; }
+.activity-item div { min-width: 0; }
+.activity-item strong, .activity-item span { display: block; }
+.activity-item strong { color: #26332d; font-size: 12px; }
+.activity-item span, .activity-item small { color: #718079; font-size: 10px; }
+.activity-item small { text-align: right; }
 .permissions-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .permission-section { overflow: hidden; border: 1px solid #d5ded9; border-radius: 16px; background: white; box-shadow: 0 12px 35px #274a3b12; }
 .permission-section > header { display: flex; align-items: flex-start; flex-direction: column; gap: 5px; padding: 17px 18px; border-bottom: 1px solid #e3ebe6; background: linear-gradient(135deg, #f8fcf9, #eef7f1); }
@@ -107,6 +119,26 @@ h1 { font: 800 clamp(28px, 4vw, 40px) 'Manrope', sans-serif; letter-spacing: -1.
 .bitrix-messages { min-height: 0; max-height: none; flex: 1; }
 .bitrix-error { margin: 10px 16px 0; }
 .bitrix-composer { flex: 0 0 auto; border-top: 1px solid #d7dfda; }
+.media-action { flex: 0 0 auto; width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid #cbd9d1; border-radius: 10px; color: #31674f; background: white; cursor: pointer; }
+.media-action:hover { background: #edf8f1; }
+.media-action.recording { color: white; border-color: #b84d4d; background: #b84d4d; animation: pulse-recording 1s infinite; }
+.media-panel { display: grid; gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid #cfe0d5; border-radius: 11px; background: #f5faf7; }
+.media-panel-title { display: flex; align-items: center; justify-content: space-between; color: #176f49; font-size: 12px; }
+.media-panel-title button { display: grid; place-items: center; border: 0; color: #718079; background: transparent; cursor: pointer; }
+.media-panel input, .media-panel textarea, .media-panel select { width: 100%; padding: 9px 10px; border: 1px solid #ccd7d1; border-radius: 8px; color: #26332d; background: white; font-size: 11px; outline: 0; }
+.media-panel input:focus, .media-panel textarea:focus { border-color: #168b58; box-shadow: 0 0 0 3px #168b5818; }
+.media-send-button { height: 36px; border: 0; border-radius: 8px; color: white; background: #167c51; font-size: 11px; font-weight: 700; cursor: pointer; }
+.media-send-button:disabled { opacity: .5; cursor: not-allowed; }
+.media-panel small { color: #718079; font-size: 9px; }
+.template-panel { display: grid; gap: 8px; margin-bottom: 10px; padding: 13px; border: 1px solid #efd9b5; border-radius: 11px; background: #fff8eb; }
+.template-panel strong { color: #815a29; font-size: 12px; }
+.template-panel p { margin: 0; color: #886022; font-size: 11px; }
+.template-panel select { height: 37px; padding: 0 9px; border: 1px solid #dec89f; border-radius: 8px; color: #5d4828; background: white; font-size: 11px; }
+.template-preview { padding: 10px; border: 1px dashed #dec89f; border-radius: 8px; color: #5d4828; background: #fffdf7; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
+.template-loading { color: #886022; font-size: 10px; }
+.template-send-button { height: 37px; border: 0; border-radius: 8px; color: white; background: #a66b24; font-size: 11px; font-weight: 700; cursor: pointer; }
+.template-send-button:disabled { opacity: .5; cursor: not-allowed; }
+@keyframes pulse-recording { 50% { box-shadow: 0 0 0 5px #b84d4d33; } }
 @media (max-width: 650px) {
   .bitrix-page { width: 100%; min-height: 760px; padding: 10px 10px; }
   .bitrix-header { align-items: flex-start; }

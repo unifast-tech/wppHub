@@ -1,7 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Check, CheckCheck, ChevronDown, Download, FileText, Image as ImageIcon, Inbox, Layers3, MessageCircle, Mic, Phone, RefreshCw, Search, Send, Settings as SettingsIcon, UserRound, Wifi, X } from 'lucide-react'
 import AuthScreen from './auth-ui/AuthScreen'
-import { getAuthSession, logout } from './auth'
+import MessageAttachmentView from './components/MessageAttachment'
+import ConversationMessagesView from './components/ConversationMessages'
+import StudentSearchForm from './components/StudentSearchForm'
+import ConversationCard from './components/ConversationCard'
+import { getAuthSession, logout, onSessionExpired } from './auth'
 import { ATTENDANT_NAME, cleanPhone, getAccounts, getAttachment, getConversation, getConversations, normalizeBrazilianPhone, sendMessage } from './api'
 
 function formatPhone(value) {
@@ -50,7 +54,7 @@ function formatFileSize(bytes) {
   return `${(size / 1024 ** 2).toFixed(1)} MB`
 }
 
-function MessageAttachment({ attachment, channel }) {
+function LegacyMessageAttachment({ attachment, channel }) {
   const [source, setSource] = useState('')
   const [failed, setFailed] = useState(false)
   const supported = ['image', 'sticker', 'video', 'audio', 'document'].includes(attachment?.type)
@@ -186,7 +190,7 @@ function LinkifiedText({ text }) {
   })
 }
 
-function ConversationMessages({ thread, messagesRef }) {
+function LegacyConversationMessages({ thread, messagesRef }) {
   const messages = thread.conversation.messages
   return <div className="messages thread-messages" ref={messagesRef}>
     {messages.map((message, index) => {
@@ -196,7 +200,7 @@ function ConversationMessages({ thread, messagesRef }) {
         {currentDay !== previousDay && <div className="date-chip">{currentDay}</div>}
         <div className={`message-row ${message.direction}`}>
           <div className="bubble">
-            {message.attachment && <MessageAttachment attachment={message.attachment} channel={thread.channel} />}
+            {message.attachment && <MessageAttachmentView attachment={message.attachment} channel={thread.channel} />}
             <p><LinkifiedText text={message.text || (message.attachment ? '' : 'Mensagem sem conteúdo textual')} /></p>
             <span className="meta">{formatTime(message.timestamp)}{message.direction === 'outbound' && <StatusIcon status={message.status} />}</span>
             {message.reaction && <span className="message-reaction" title="Reação à mensagem">{message.reaction}</span>}
@@ -220,6 +224,7 @@ function safeTimestamp(value) {
 
 export default function App() {
   const [session, setSession] = useState(() => getAuthSession())
+  useEffect(() => onSessionExpired(() => setSession(null)), [])
   const [activeView, setActiveView] = useState('student')
   const [phone, setPhone] = useState('')
   const [threads, setThreads] = useState([])
@@ -649,14 +654,7 @@ export default function App() {
         <span className="eyebrow">Ficha do aluno</span>
         <h1>Conversas no WhatsApp</h1>
         <p>Consulte de uma vez todos os atendimentos vinculados ao telefone do aluno.</p>
-        <form className="search-form" onSubmit={handleSearch}>
-          <label htmlFor="phone">Telefone do aluno</label>
-          <div className="search-row">
-            <div className="input-wrap"><Phone size={19} /><input id="phone" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="(11) 99999-9999" inputMode="tel" autoComplete="tel" /><span className="country">BR</span></div>
-            <button type="submit" disabled={loading}><Search size={18} />{loading ? 'Consultando canais...' : 'Ver histórico'}</button>
-          </div>
-          {error && <div className="error" role="alert"><X size={16} />{error}</div>}
-        </form>
+        <StudentSearchForm phone={phone} onPhoneChange={setPhone} onSubmit={handleSearch} loading={loading} error={error} formatPhone={formatPhone} />
       </section>
 
       <section className="conversation-results" aria-busy={loading}>
@@ -679,34 +677,7 @@ export default function App() {
           const messages = thread.conversation.messages
           const latestMessage = messages.at(-1)
           const draft = drafts[thread.id] || ''
-          const sending = sendingThreadId === thread.id
-          const officialWindowClosed = thread.channel === 'official' && thread.conversation.windowOpen === false
-          return <article className={`thread-card ${expanded ? 'expanded' : ''}`} key={thread.id}>
-            <button className="thread-header" type="button" onClick={() => setExpandedThreadId(expanded ? '' : thread.id)} aria-expanded={expanded}>
-              <span className={`thread-avatar ${thread.channel}`}>{thread.account.name?.charAt(0).toUpperCase() || 'W'}</span>
-              <span className="thread-main">
-                <span className="thread-title"><strong>{thread.account.name}</strong><span className={`channel-badge ${thread.channel}`}>{thread.channel === 'official' ? 'Meta · Oficial' : 'Hub · Evolution'}</span></span>
-                <span className="thread-preview">{messagePreview(latestMessage)}</span>
-              </span>
-              <span className="thread-meta"><time>{formatTime(latestMessage?.timestamp)}</time><small>{messages.length} {messages.length === 1 ? 'mensagem' : 'mensagens'}</small></span>
-              <ChevronDown className="thread-chevron" size={19} />
-            </button>
-
-            {expanded && <div className="thread-content">
-              <div className="thread-contact"><span>{thread.conversation.contact.name}</span><small>{formatContactPhone(thread.conversation.contact.phone)}</small></div>
-              <ConversationMessages thread={thread} messagesRef={messagesRef} />
-              <form className="composer" onSubmit={(event) => handleSend(event, thread)}>
-                {officialWindowClosed && <div className="window-warning">Janela de 24 horas encerrada. Aguarde o contato enviar uma nova mensagem para responder.</div>}
-                {sendErrors[thread.id] && <div className="send-error" role="alert"><X size={14} />{sendErrors[thread.id]}</div>}
-                <div className="composer-row">
-                  <textarea ref={composerRef} value={draft} onChange={(event) => setDrafts((current) => ({ ...current, [thread.id]: event.target.value.slice(0, 4096) }))} onKeyDown={(event) => handleDraftKeyDown(event, thread)} placeholder={officialWindowClosed ? 'Envio indisponível fora da janela de 24h' : `Responder por ${thread.account.name}`} aria-label="Mensagem" rows="1" disabled={sending || officialWindowClosed} />
-                  <span className={`char-count ${draft.length > 3900 ? 'near-limit' : ''}`}>{draft.length}/4096</span>
-                  <button type="submit" disabled={sending || !draft.trim() || officialWindowClosed} aria-label="Enviar mensagem"><Send size={19} /></button>
-                </div>
-                <span className="send-hint">Resposta enviada por {thread.channel === 'official' ? 'API Oficial' : 'WhatsApp Hub'} · Enter para enviar</span>
-              </form>
-            </div>}
-          </article>
+          return <ConversationCard key={thread.id} thread={thread} expanded={expanded} onToggle={() => setExpandedThreadId(expanded ? '' : thread.id)} draft={drafts[thread.id] || ''} onDraftChange={(value) => setDrafts((current) => ({ ...current, [thread.id]: value }))} sending={sendingThreadId === thread.id} sendError={sendErrors[thread.id]} onSend={handleSend} onDraftKeyDown={handleDraftKeyDown} messagesRef={messagesRef} composerRef={composerRef} formatContactPhone={formatContactPhone} formatTime={formatTime} messagePreview={messagePreview} />
         })}
       </section>
     </main> : <main className="inbox-page">

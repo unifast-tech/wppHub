@@ -42,3 +42,26 @@ CREATE TABLE IF NOT EXISTS bitrix_conversations (
 );
 
 CREATE INDEX IF NOT EXISTS bitrix_conversations_phone_idx ON bitrix_conversations(phone);
+
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id BIGSERIAL PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  actor_name TEXT,
+  actor_email TEXT,
+  event_type TEXT NOT NULL,
+  category TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'info',
+  channel TEXT,
+  account_id TEXT,
+  account_name TEXT,
+  bitrix_deal_id TEXT,
+  conversation_id TEXT,
+  target_user_id BIGINT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ip_address TEXT,
+  user_agent TEXT
+);
+
+CREATE INDEX IF NOT EXISTS activity_logs_created_at_idx ON activity_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS activity_logs_event_type_idx ON activity_logs(event_type);

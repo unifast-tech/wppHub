@@ -87,6 +87,32 @@ function requireAdmin(request, response, next) {
   return next()
 }
 
+function requireActivityAccess(request, response, next) {
+  if (request.user?.role !== 'admin' && request.user?.department !== 'Coordenação') {
+    return response.status(403).json({ error: 'Acesso restrito ao painel de atividade.' })
+  }
+  return next()
+}
+
+async function logActivity(request, event) {
+  try {
+    await sql`
+      INSERT INTO activity_logs
+        (actor_user_id, actor_name, actor_email, event_type, category, severity, channel,
+         account_id, account_name, bitrix_deal_id, conversation_id, target_user_id,
+         metadata, ip_address, user_agent)
+      VALUES
+        (${request.user?.sub || null}, ${request.user?.name || null}, ${request.user?.email || null},
+         ${event.eventType}, ${event.category}, ${event.severity || 'info'}, ${event.channel || null},
+         ${event.accountId || null}, ${event.accountName || null}, ${event.bitrixDealId || null},
+         ${event.conversationId || null}, ${event.targetUserId || null}, ${JSON.stringify(event.metadata || {})}::jsonb,
+         ${request.ip || null}, ${request.get('user-agent') || null})
+    `
+  } catch (error) {
+    console.error('Falha ao registrar atividade:', error.message)
+  }
+}
+
 function validCompanyEmail(email) {
   return /^[^\s@]+@unifast\.com\.br$/i.test(email)
 }
@@ -134,9 +160,11 @@ app.post('/api/auth/login', async (request, response) => {
   `
   const user = result[0]
   if (!user || !user.active || !(await bcrypt.compare(password, user.password_hash))) {
+    await logActivity({ ...request, user: null }, { eventType: 'login_failed', category: 'auth', severity: 'warning', metadata: { email_masked: email.replace(/^(.{2}).*(@.*)$/, '$1***$2') } })
     return response.status(401).json({ error: 'E-mail ou senha inválidos.' })
   }
   if (user.status !== 'approved') return response.status(403).json({ error: user.status === 'pending' ? 'Seu cadastro ainda aguarda aprovação do administrador.' : 'Seu cadastro não está aprovado.' })
+  await logActivity({ ...request, user: { sub: user.id, name: user.name, email: user.email } }, { eventType: 'login_success', category: 'auth', severity: 'success' })
   return response.json({ token: issueToken(user), user: publicUser(user) })
 })
 
@@ -173,6 +201,39 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (_request, response
   return response.json({ users: result.map(publicUser) })
 })
 
+app.get('/api/admin/activity', requireAuth, requireActivityAccess, async (request, response) => {
+  const limit = Math.min(Math.max(Number(request.query.limit) || 100, 1), 200)
+  const result = await sql`
+    SELECT id, created_at AS "createdAt", actor_name AS "actorName", actor_email AS "actorEmail",
+           event_type AS "eventType", category, severity, channel, account_id AS "accountId",
+           account_name AS "accountName", bitrix_deal_id AS "bitrixDealId",
+           conversation_id AS "conversationId", metadata
+    FROM activity_logs
+    WHERE created_at >= NOW() - INTERVAL '180 days'
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `
+  return response.json({ activities: result })
+})
+
+app.post('/api/activity', requireAuth, async (request, response) => {
+  const allowed = ['conversation_opened', 'conversation_selected', 'message_sent', 'message_send_failed', 'session_expired', 'logout']
+  const eventType = String(request.body?.eventType || '')
+  if (!allowed.includes(eventType)) return response.status(400).json({ error: 'Evento de atividade inválido.' })
+  await logActivity(request, {
+    eventType,
+    category: ['message_sent', 'message_send_failed'].includes(eventType) ? 'message' : 'conversation',
+    severity: eventType.includes('failed') || eventType === 'session_expired' ? 'warning' : 'info',
+    channel: request.body?.channel,
+    accountId: request.body?.accountId,
+    accountName: request.body?.accountName,
+    bitrixDealId: request.body?.bitrixDealId,
+    conversationId: request.body?.conversationId,
+    metadata: request.body?.metadata || {},
+  })
+  return response.status(204).end()
+})
+
 app.get('/api/admin/account-departments', requireAuth, requireAdmin, async (_request, response) => {
   const [hub, official, mappings] = await Promise.all([
     fetchChannelAccounts('hub'),
@@ -194,11 +255,13 @@ app.put('/api/admin/account-departments', requireAuth, requireAdmin, async (requ
     ON CONFLICT (channel, account_id) DO UPDATE SET account_name = EXCLUDED.account_name, department = EXCLUDED.department, updated_at = NOW()
     RETURNING channel, account_id AS "accountId", account_name AS "accountName", department
   `
+  await logActivity(request, { eventType: 'account_department_assigned', category: 'admin', severity: 'success', channel, accountId, accountName, metadata: { department } })
   return response.json({ mapping: result[0] })
 })
 
 app.delete('/api/admin/account-departments/:channel/:accountId', requireAuth, requireAdmin, async (request, response) => {
   await sql`DELETE FROM account_departments WHERE channel = ${request.params.channel} AND account_id = ${request.params.accountId}`
+  await logActivity(request, { eventType: 'account_department_removed', category: 'admin', severity: 'warning', channel: request.params.channel, accountId: request.params.accountId })
   return response.status(204).end()
 })
 
@@ -218,6 +281,7 @@ app.patch('/api/admin/users/:userId', requireAuth, requireAdmin, async (request,
     RETURNING id, email, name, department, status, role, active
   `
   if (!result[0]) return response.status(404).json({ error: 'Usuário não encontrado.' })
+  await logActivity(request, { eventType: status ? `user_status_${status}` : 'user_access_changed', category: 'admin', severity: 'success', targetUserId: userId, metadata: { status, department, active } })
   return response.json({ user: publicUser(result[0]) })
 })
 
@@ -277,6 +341,7 @@ app.put('/api/bitrix/deals/:dealId/conversation', requireAuth, async (request, r
     RETURNING bitrix_deal_id AS "dealId", bitrix_contact_id AS "contactId", conversation_id AS "conversationId",
               phone, channel, account_id AS "accountId"
   `
+  await logActivity(request, { eventType: 'conversation_linked_to_bitrix', category: 'conversation', severity: 'success', channel, accountId, bitrixDealId: request.params.dealId, conversationId, metadata: { phone_masked: `${phone.slice(0, 3)}******${phone.slice(-2)}` } })
   return response.json({ conversation: result[0] })
 })
 

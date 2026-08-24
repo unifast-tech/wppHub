@@ -1,3 +1,6 @@
+import { notifySessionExpired, recordActivity } from './auth'
+import { httpFetch, readHttpError } from './http'
+
 const CHANNELS = {
   hub: {
     baseUrl: (import.meta.env.VITE_HUB_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || 'https://whatsapp.prosperargroup.com.br/api/v1').replace(/\/$/, ''),
@@ -118,24 +121,21 @@ function resolveApiUrl(channel, path) {
 }
 
 async function parseError(response) {
-  const payload = await response.json().catch(() => null)
-  const error = new Error(payload?.error || payload?.message || `A API retornou o status ${response.status}.`)
-  error.code = payload?.code
-  error.status = response.status
-  return error
+  if (response.status === 401) notifySessionExpired()
+  return readHttpError(response, `A API retornou o status ${response.status}.`)
 }
 
 export async function getAccounts(channel, signal) {
   if (DEMO_MODE) return [{ id: 'demo-account', name: 'Suporte UniFast', numero: '5584999998888', conectado: true }]
   if (window.localStorage.getItem('wpphub.auth.token')) {
-    const response = await fetch(`/api/accounts?channel=${encodeURIComponent(channel)}`, { signal, headers: { Accept: 'application/json', ...authHeaders() } })
+    const response = await httpFetch(`/api/accounts?channel=${encodeURIComponent(channel)}`, { signal, headers: { Accept: 'application/json', ...authHeaders() } })
     if (!response.ok) throw await parseError(response)
     const payload = await response.json()
     return Array.isArray(payload?.accounts) ? payload.accounts : []
   }
   const config = configFor(channel)
   if (!config.token && channel !== 'official') throw new Error('Configure VITE_HUB_API_TOKEN com a chave wah_...')
-  const response = await fetch(`${config.baseUrl}/accounts`, { signal, headers: headers(channel) })
+    const response = await httpFetch(`${config.baseUrl}/accounts`, { signal, headers: headers(channel) })
   if (!response.ok) throw await parseError(response)
   const payload = await response.json()
   const accounts = Array.isArray(payload?.accounts) ? payload.accounts : []
@@ -163,7 +163,7 @@ export async function getConversations(channel, accountId, signal) {
   if (!accountId) throw new Error('Nenhuma conta do WhatsApp está disponível para listar conversas.')
   const url = new URL(`${configFor(channel).baseUrl}/conversations`, window.location.origin)
   url.searchParams.set('account_id', accountId)
-  const response = await fetch(url, {
+  const response = await httpFetch(url, {
     method: 'GET',
     signal,
     headers: headers(channel),
@@ -204,7 +204,8 @@ export async function getConversation(channel, phone, accountId, signal, since =
   url.searchParams.set('account_id', accountId)
   url.searchParams.set('limit', '500')
   if (since) url.searchParams.set('since', since)
-  const response = await fetch(url, {
+  const response = await httpFetch(url, {
+    timeout: 20000,
     method: 'GET',
     signal,
     headers: headers(channel),
@@ -220,7 +221,8 @@ export async function getConversation(channel, phone, accountId, signal, since =
 
 export async function getAttachment(channel, path, signal) {
   if (!path) throw new Error('A mídia não possui uma URL disponível.')
-  const response = await fetch(resolveApiUrl(channel, path), {
+  const response = await httpFetch(resolveApiUrl(channel, path), {
+    timeout: 60000,
     method: 'GET',
     signal,
     headers: headers(channel),
@@ -242,7 +244,8 @@ export async function sendMessage({ channel, phone, accountId, text, attendant }
     return { ok: true, message_id: `demo-${Date.now()}`, evolution_message_id: null }
   }
 
-  const response = await fetch(`${configFor(channel).baseUrl}/messages`, {
+  const response = await httpFetch(`${configFor(channel).baseUrl}/messages`, {
+    retries: 0,
     method: 'POST',
     signal,
     headers: { ...headers(channel), 'Content-Type': 'application/json' },
@@ -253,6 +256,47 @@ export async function sendMessage({ channel, phone, accountId, text, attendant }
       ...(attendant?.trim() ? { atendente: attendant.trim() } : {}),
     }),
   })
+  if (!response.ok) throw await parseError(response)
+  const payload = await response.json()
+  recordActivity({ eventType: 'message_sent', channel, accountId })
+  return payload
+}
+
+export async function sendMedia({ channel, phone, accountId, fileUrl = '', fileBase64 = '', name = '', mime = '', caption = '', attendant = '' }, signal) {
+  const normalizedPhone = normalizeBrazilianPhone(phone)
+  if (!/^55\d{10,11}$/.test(normalizedPhone)) throw new Error('O telefone da conversa é inválido.')
+  if (!accountId) throw new Error('Nenhuma conta do WhatsApp está disponível para o envio.')
+  if (!fileUrl && !fileBase64) throw new Error('Selecione um arquivo ou informe uma URL pública.')
+  if (channel === 'official' && !fileUrl && !fileBase64) throw new Error('A API Oficial exige arquivo_url ou arquivo_base64.')
+  if (channel !== 'official' && !fileUrl) throw new Error('A API Não Oficial exige uma URL pública para enviar mídia.')
+  const official = channel === 'official'
+  const body = {
+    account_id: accountId,
+    telefone: normalizedPhone,
+    ...(official ? { ...(fileUrl ? { arquivo_url: fileUrl } : { arquivo_base64: fileBase64 }), ...(name ? { nome: name } : {}), ...(mime ? { mime } : {}), ...(caption ? { legenda: caption.slice(0, 1024) } : {}) } : { arquivo_url: fileUrl, ...(mime ? { tipo: mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document' } : {}), ...(name ? { nome: name } : {}), ...(caption ? { texto: caption.slice(0, 4096) } : {}) }),
+    ...(attendant?.trim() ? { atendente: attendant.trim() } : {}),
+  }
+  const response = await httpFetch(`${configFor(channel).baseUrl}${official ? '/messages/media' : '/messages'}`, { method: 'POST', retries: 0, signal, headers: { ...headers(channel), 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!response.ok) throw await parseError(response)
+  return response.json()
+}
+
+export async function getTemplates(accountId, signal) {
+  if (!accountId) throw new Error('Nenhuma conta oficial selecionada para carregar os modelos.')
+  const url = new URL(`${configFor('official').baseUrl}/templates`, window.location.origin)
+  url.searchParams.set('account_id', accountId)
+  const response = await httpFetch(url, { signal, headers: headers('official'), timeout: 20000 })
+  if (!response.ok) throw await parseError(response)
+  const payload = await response.json()
+  return (Array.isArray(payload?.modelos) ? payload.modelos : []).filter((template) => Number(template.variaveis || 0) <= 1)
+}
+
+export async function sendTemplate({ accountId, phone, name, templateName, title = '', requiresName = true }, signal) {
+  const normalizedPhone = normalizeBrazilianPhone(phone)
+  const recipientName = String(name || '').trim()
+  if (!accountId || !templateName || !/^55\d{10,11}$/.test(normalizedPhone)) throw new Error('Conta, modelo e telefone são obrigatórios para o disparo.')
+  if (requiresName && !recipientName) throw new Error('Este modelo exige o nome do contato para ser disparado.')
+  const response = await httpFetch(`${configFor('official').baseUrl}/campaigns`, { method: 'POST', retries: 0, signal, headers: { ...headers('official'), 'Content-Type': 'application/json' }, body: JSON.stringify({ account_id: accountId, modelo: templateName, destinatarios: [{ telefone: normalizedPhone, nome: recipientName }], ...(title.trim() ? { titulo: title.trim() } : {}) }) })
   if (!response.ok) throw await parseError(response)
   return response.json()
 }

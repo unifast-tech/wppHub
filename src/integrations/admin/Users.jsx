@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Check, Trash2, UserRound, X } from 'lucide-react'
-import { deleteAdminUser, getAdminUsers, getAuthSession, resetAdminUserPassword, updateAdminUser } from '../../auth'
+import AuthScreen from '../../auth-ui/AuthScreen'
+import { deleteAdminUser, getAdminUsers, getAuthSession, onSessionExpired, resetAdminUserPassword, updateAdminUser } from '../../auth'
 
 const departments = ['Comercial B2C', 'Comercial B2B', 'Secretaria', 'Financeiro', 'Coordenação', 'Administrativo']
 
 export default function Users() {
-  const [session] = useState(() => getAuthSession())
+  const [session, setSession] = useState(() => getAuthSession())
+  useEffect(() => onSessionExpired(() => setSession(null)), [])
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -35,7 +37,8 @@ export default function Users() {
     try { setTemporaryPassword(await resetAdminUserPassword(user.id)) } catch (err) { setError(err.message) }
   }
 
-  if (!session || session.user?.role !== 'admin') return <main className="admin-page"><div className="empty-state"><UserRound size={28} /><h2>Acesso restrito</h2><p>Entre com a conta administradora para acessar este painel.</p></div></main>
+  if (!session) return <AuthScreen onLogin={setSession} />
+  if (session.user?.role !== 'admin') return <main className="admin-page"><div className="empty-state"><UserRound size={28} /><h2>Acesso restrito</h2><p>Entre com a conta administradora para acessar este painel.</p></div></main>
 
   return <main className="admin-page">
     <header className="admin-header"><div><span className="eyebrow">Administração</span><h1>Usuários da aplicação</h1><p>Aprove acessos e gerencie os departamentos da equipe.</p></div><button type="button" onClick={() => window.history.length > 1 ? window.history.back() : window.location.assign('/')} className="admin-back"><ArrowLeft size={15} />Voltar</button></header>

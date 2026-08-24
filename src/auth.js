@@ -1,6 +1,18 @@
 const AUTH_TOKEN_KEY = 'wpphub.auth.token'
 const AUTH_USER_KEY = 'wpphub.auth.user'
 const AUTH_BASE_URL = (import.meta.env.VITE_AUTH_API_BASE_URL || '/api/auth').replace(/\/$/, '')
+import { httpFetch } from './http'
+const SESSION_EXPIRED_EVENT = 'wpphub:session-expired'
+
+export function notifySessionExpired() {
+  logout()
+  window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
+}
+
+export function onSessionExpired(callback) {
+  window.addEventListener(SESSION_EXPIRED_EVENT, callback)
+  return () => window.removeEventListener(SESSION_EXPIRED_EVENT, callback)
+}
 
 export function getAuthSession() {
   const token = window.localStorage.getItem(AUTH_TOKEN_KEY)
@@ -15,7 +27,7 @@ export function authHeaders() {
 }
 
 export async function login(email, password) {
-  const response = await fetch(`${AUTH_BASE_URL}/login`, {
+  const response = await httpFetch(`${AUTH_BASE_URL}/login`, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -31,7 +43,7 @@ export async function login(email, password) {
 }
 
 export async function registerUser({ name, email, password, passwordConfirmation, department }) {
-  const response = await fetch(`${AUTH_BASE_URL}/register`, {
+  const response = await httpFetch(`${AUTH_BASE_URL}/register`, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email, password, passwordConfirmation, department }),
@@ -42,21 +54,36 @@ export async function registerUser({ name, email, password, passwordConfirmation
 }
 
 export async function getAdminUsers() {
-  const response = await fetch('/api/admin/users', { headers: { Accept: 'application/json', ...authHeaders() } })
+  const response = await httpFetch('/api/admin/users', { headers: { Accept: 'application/json', ...authHeaders() } })
+  if (response.status === 401) notifySessionExpired()
   const payload = await response.json().catch(() => null)
   if (!response.ok) throw new Error(payload?.error || 'Não foi possível carregar os usuários.')
   return payload.users || []
 }
 
-export async function updateAdminUser(userId, changes) {
-  const response = await fetch(`/api/admin/users/${userId}`, { method: 'PATCH', headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(changes) })
+export async function getActivity() {
+  const response = await httpFetch('/api/admin/activity?limit=100', { headers: { Accept: 'application/json', ...authHeaders() } })
+  if (response.status === 401) notifySessionExpired()
   const payload = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(payload?.error || 'Não foi possível carregar a atividade.')
+  return payload?.activities || []
+}
+
+export function recordActivity(event) {
+  httpFetch('/api/activity', { method: 'POST', retries: 0, headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(event) }).catch(() => {})
+}
+
+export async function updateAdminUser(userId, changes) {
+  const response = await httpFetch(`/api/admin/users/${userId}`, { method: 'PATCH', headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(changes) })
+  const payload = await response.json().catch(() => null)
+  if (response.status === 401) notifySessionExpired()
   if (!response.ok) throw new Error(payload?.error || 'Não foi possível atualizar o usuário.')
   return payload.user
 }
 
 export async function deleteAdminUser(userId) {
-  const response = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: authHeaders() })
+  const response = await httpFetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: authHeaders() })
+  if (response.status === 401) notifySessionExpired()
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
     throw new Error(payload?.error || 'Não foi possível excluir o usuário.')
@@ -64,28 +91,32 @@ export async function deleteAdminUser(userId) {
 }
 
 export async function resetAdminUserPassword(userId) {
-  const response = await fetch(`/api/admin/users/${userId}/reset-password`, { method: 'POST', headers: authHeaders() })
+  const response = await httpFetch(`/api/admin/users/${userId}/reset-password`, { method: 'POST', headers: authHeaders() })
   const payload = await response.json().catch(() => null)
+  if (response.status === 401) notifySessionExpired()
   if (!response.ok) throw new Error(payload?.error || 'Não foi possível redefinir a senha.')
   return payload
 }
 
 export async function getAccountDepartments() {
-  const response = await fetch('/api/admin/account-departments', { headers: { Accept: 'application/json', ...authHeaders() } })
+  const response = await httpFetch('/api/admin/account-departments', { headers: { Accept: 'application/json', ...authHeaders() } })
   const payload = await response.json().catch(() => null)
+  if (response.status === 401) notifySessionExpired()
   if (!response.ok) throw new Error(payload?.error || 'Não foi possível carregar as permissões.')
   return payload
 }
 
 export async function setAccountDepartment(mapping) {
-  const response = await fetch('/api/admin/account-departments', { method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(mapping) })
+  const response = await httpFetch('/api/admin/account-departments', { method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(mapping) })
   const payload = await response.json().catch(() => null)
+  if (response.status === 401) notifySessionExpired()
   if (!response.ok) throw new Error(payload?.error || 'Não foi possível salvar a permissão.')
   return payload.mapping
 }
 
 export async function removeAccountDepartment(channel, accountId) {
-  const response = await fetch(`/api/admin/account-departments/${channel}/${encodeURIComponent(accountId)}`, { method: 'DELETE', headers: authHeaders() })
+  const response = await httpFetch(`/api/admin/account-departments/${channel}/${encodeURIComponent(accountId)}`, { method: 'DELETE', headers: authHeaders() })
+  if (response.status === 401) notifySessionExpired()
   if (!response.ok) throw new Error('Não foi possível remover a permissão.')
 }
 
