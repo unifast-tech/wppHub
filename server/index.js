@@ -3,11 +3,14 @@ import cors from 'cors'
 import express from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
+import { spawn } from 'node:child_process'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { neon } from '@neondatabase/serverless'
+import ffmpegPath from 'ffmpeg-static'
 
 const app = express()
 const ADMIN_EMAIL = 'admin@unifast.com.br'
@@ -45,6 +48,34 @@ app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',').map((origin) => origi
 app.use(express.json({ limit: '30mb' }))
 app.use(express.urlencoded({ extended: true, limit: '32kb' }))
 
+async function convertWebmAudioToOgg(body) {
+  const mime = String(body?.mime || '').toLowerCase()
+  const encoded = String(body?.arquivo_base64 || '')
+  if (!mime.startsWith('audio/webm') || !encoded) return body
+  if (!ffmpegPath) throw new Error('Conversor de áudio indisponível no servidor.')
+
+  const base64 = encoded.replace(/^data:[^;]+;base64,/, '')
+  const input = Buffer.from(base64, 'base64')
+  if (!input.length) throw new Error('O áudio gravado está vazio ou inválido.')
+  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'wpphub-audio-'))
+  const inputPath = path.join(temporaryDirectory, 'input.webm')
+  const outputPath = path.join(temporaryDirectory, 'output.ogg')
+  try {
+    await writeFile(inputPath, input)
+    await new Promise((resolve, reject) => {
+      const process = spawn(ffmpegPath, ['-y', '-i', inputPath, '-vn', '-c:a', 'libopus', '-b:a', '64k', '-f', 'ogg', outputPath])
+      let errorOutput = ''
+      process.stderr.on('data', (chunk) => { errorOutput += String(chunk) })
+      process.on('error', reject)
+      process.on('close', (code) => code === 0 ? resolve() : reject(new Error(errorOutput.slice(-500) || 'Falha ao converter o áudio.')))
+    })
+    const converted = await readFile(outputPath)
+    return { ...body, arquivo_base64: converted.toString('base64'), mime: 'audio/ogg', nome: String(body.nome || 'audio-gravado').replace(/\.[^.]+$/, '') + '.ogg' }
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
 app.use('/official-api', async (request, response) => {
   const upstream = (process.env.OFFICIAL_API_UPSTREAM_URL || 'https://whatsapp-modelos.andre-51e.workers.dev').replace(/\/$/, '')
   const target = new URL(`${upstream}/api/v1${request.path || '/'}`)
@@ -56,10 +87,16 @@ app.use('/official-api', async (request, response) => {
   const token = process.env.OFFICIAL_API_TOKEN || process.env.VITE_OFFICIAL_API_TOKEN
   if (token) headers.Authorization = `Bearer ${token}`
   if (request.get('content-type')) headers['Content-Type'] = request.get('content-type')
+  let body = request.body
+  try {
+    if (request.path === '/messages/media') body = await convertWebmAudioToOgg(body)
+  } catch (error) {
+    return response.status(422).json({ error: error.message })
+  }
   const upstreamResponse = await fetch(target, {
     method: request.method,
     headers,
-    body: ['GET', 'HEAD'].includes(request.method) ? undefined : JSON.stringify(request.body),
+    body: ['GET', 'HEAD'].includes(request.method) ? undefined : JSON.stringify(body),
   })
   response.status(upstreamResponse.status)
   const contentType = upstreamResponse.headers.get('content-type')

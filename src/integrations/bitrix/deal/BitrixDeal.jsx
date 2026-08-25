@@ -40,6 +40,17 @@ function messageFallback(message) {
   return 'Mensagem sem conteúdo textual'
 }
 
+function LinkifiedText({ text }) {
+  if (!text) return null
+  return text.split(/((?:https?:\/\/|www\.)[^\s]+)/gi).map((part, index) => {
+    if (!/^(?:https?:\/\/|www\.)/i.test(part)) return <span key={`${index}-${part}`}>{part}</span>
+    const punctuation = part.match(/[),.;!?]+$/)?.[0] || ''
+    const visibleUrl = punctuation ? part.slice(0, -punctuation.length) : part
+    const href = /^www\./i.test(visibleUrl) ? `https://${visibleUrl}` : visibleUrl
+    return <span key={`${index}-${part}`}><a className="message-link" href={href} target="_blank" rel="noopener noreferrer">{visibleUrl}</a>{punctuation}</span>
+  })
+}
+
 function accountLabel(account) {
   return account?.name || account?.nome || account?.numero || account?.phone || `Dispositivo ${account?.id || ''}`
 }
@@ -146,6 +157,16 @@ function fileAsBase64(file) {
   })
 }
 
+function fileNameFromUrl(value) {
+  try {
+    const pathname = new URL(value).pathname
+    const name = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '')
+    return name || 'arquivo'
+  } catch {
+    return 'arquivo'
+  }
+}
+
 function LoginScreen({ onLogin }) {
   const [registering, setRegistering] = useState(false)
   const [email, setEmail] = useState('')
@@ -215,7 +236,7 @@ function MessageList({ conversation, channel }) {
     {conversation.messages.map((message) => { if (!message.text && !message.attachment) message.text = messageFallback(message); return <div className={`message-row ${message.direction}`} key={message.id}>
       <div className="bubble">
         {message.attachment && <MessageAttachment attachment={message.attachment} channel={channel} />}
-        {(message.text || !message.attachment) && <p>{message.text || 'Mensagem sem conteúdo textual'}</p>}
+        {(message.text || !message.attachment) && <p><LinkifiedText text={message.text || 'Mensagem sem conteúdo textual'} /></p>}
         <span className="meta">{formatTime(message.timestamp)}</span>
         {message.reaction && <span className="message-reaction" title="Reação à mensagem">{message.reaction}</span>}
       </div>
@@ -257,6 +278,11 @@ export default function BitrixDeal() {
 
   useEffect(() => {
     const input = fileInputRef.current
+    if (channel !== 'official') {
+      setMediaFile(null)
+      setRecordedAudio(null)
+      if (input) input.value = ''
+    }
     if (!input) return undefined
     const nativeClick = input.click.bind(input)
     input.click = channel === 'official' ? nativeClick : () => setMediaOpen(true)
@@ -483,12 +509,16 @@ export default function BitrixDeal() {
     setSending(true)
     setError('')
     try {
-      const file = recordedAudio || mediaFile
+      const file = channel === 'official' ? recordedAudio || mediaFile : null
       if (file && file.size > 20 * 1024 * 1024) throw new Error('O arquivo não pode ultrapassar 20 MB.')
       const fileBase64 = file ? await fileAsBase64(file) : ''
-      const mime = (file?.type || (channel === 'official' ? 'audio/webm' : mediaType)).split(';')[0]
+      const mime = channel === 'official'
+        ? (file?.type || 'audio/webm').split(';')[0]
+        : ({ image: 'image/jpeg', video: 'video/mp4', audio: 'audio/ogg', document: 'application/pdf' }[mediaType] || 'application/pdf')
       const mediaCaptionText = channel === 'official' ? draft.trim() : mediaCaption
-      const result = await sendMedia({ channel, phone: conversation.contact.phone, accountId: activeAccount.id, fileUrl: channel === 'official' ? '' : mediaUrl.trim(), fileBase64, name: file?.name || 'audio.webm', mime, caption: mediaCaptionText })
+      const publicUrl = channel === 'official' ? '' : mediaUrl.trim()
+      const mediaName = file?.name || (publicUrl ? fileNameFromUrl(publicUrl) : 'arquivo')
+      const result = await sendMedia({ channel, phone: conversation.contact.phone, accountId: activeAccount.id, fileUrl: publicUrl, fileBase64, name: mediaName, mime, caption: mediaCaptionText })
       const message = { id: result.message_id || result.wa_message_id || `local-${Date.now()}`, direction: 'outbound', text: mediaCaption, timestamp: new Date().toISOString(), status: 'sent', optimistic: true, attachment: { type: file?.type?.startsWith('image/') ? 'image' : file?.type?.startsWith('video/') ? 'video' : file?.type?.startsWith('audio/') ? 'audio' : 'document', name: file?.name || 'Mídia enviada', mime: file?.type || '', ready: false, url: '' } }
       setConversation((current) => ({ ...current, messages: [...current.messages, message] }))
       setLockedAccount(activeAccount)
@@ -521,8 +551,8 @@ export default function BitrixDeal() {
         throw new Error('MICROPHONE_UNSUPPORTED')
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const supportedMime = ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/webm;codecs=opus', 'audio/webm'].find((mime) => MediaRecorder.isTypeSupported(mime)) || ''
-      if (!supportedMime || !supportedMime.startsWith('audio/ogg')) {
+      const supportedMime = ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/webm;codecs=opus', 'audio/webm'].find((mime) => MediaRecorder.isTypeSupported(mime)) || ''
+      if (!supportedMime) {
         stream.getTracks().forEach((track) => track.stop())
         const formatError = new Error('AUDIO_FORMAT_UNSUPPORTED')
         formatError.code = 'AUDIO_FORMAT_UNSUPPORTED'
@@ -531,12 +561,12 @@ export default function BitrixDeal() {
       const recorder = new MediaRecorder(stream, supportedMime ? { mimeType: supportedMime } : undefined)
       recordingChunksRef.current = []
       recorder.ondataavailable = (event) => { if (event.data.size) recordingChunksRef.current.push(event.data) }
-      recorder.onstop = () => { stream.getTracks().forEach((track) => track.stop()); const mime = recorder.mimeType || 'audio/webm'; const extension = mime.includes('ogg') ? 'ogg' : 'webm'; setRecordedAudio(new File([new Blob(recordingChunksRef.current, { type: mime })], `audio-gravado.${extension}`, { type: mime })); setRecording(false); setMediaOpen(true) }
+      recorder.onstop = () => { stream.getTracks().forEach((track) => track.stop()); const mime = recorder.mimeType || 'audio/webm'; const extension = mime.includes('ogg') ? 'ogg' : mime.includes('mp4') ? 'mp4' : mime.includes('mpeg') ? 'mp3' : 'webm'; setRecordedAudio(new File([new Blob(recordingChunksRef.current, { type: mime })], `audio-gravado.${extension}`, { type: mime })); setRecording(false); setMediaOpen(true) }
       mediaRecorderRef.current = recorder; recorder.start(); setRecording(true); setMediaOpen(true)
     } catch (error) {
       const messages = {
         MICROPHONE_UNSUPPORTED: 'O microfone exige HTTPS e um navegador com suporte a gravação. Abra o sistema pelo endereço HTTPS do Railway.',
-        AUDIO_FORMAT_UNSUPPORTED: 'O navegador não grava em OGG, formato de áudio aceito pela API Oficial. Use outro navegador compatível ou envie um arquivo de áudio OGG pelo clipe.',
+        AUDIO_FORMAT_UNSUPPORTED: 'Este navegador não oferece um formato de gravação de áudio compatível. Tente outro navegador ou envie um arquivo pelo clipe.',
         NotAllowedError: 'O acesso ao microfone foi bloqueado. Permita o microfone para este site no cadeado da barra de endereço e tente novamente.',
         SecurityError: 'O navegador bloqueou o microfone por segurança. Verifique se o Bitrix e o WppHub estão abertos em HTTPS.',
         NotFoundError: 'Nenhum microfone foi encontrado neste computador.',
