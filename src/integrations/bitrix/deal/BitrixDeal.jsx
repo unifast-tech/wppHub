@@ -263,17 +263,17 @@ export default function BitrixDeal() {
     return () => { input.click = nativeClick }
   }, [channel])
 
+  const selectedAccount = useMemo(() => channels[channel].find((account) => String(account.id) === String(accountId)) || null, [accountId, channel, channels])
+  const activeAccount = switchingDevice ? selectedAccount : lockedAccount || selectedAccount
+  const canSwitchDevice = Boolean(lockedAccount && channel === 'official' && conversation?.windowOpen === false)
+  const showDeviceSelector = !lockedAccount || switchingDevice
+
   useEffect(() => {
     const submitButton = document.querySelector(`.media-channel-${channel} button[type="submit"]`)
     if (!submitButton) return
     const hasPendingMedia = Boolean(mediaFile || recordedAudio || (channel !== 'official' && mediaUrl.trim()))
     submitButton.disabled = !activeAccount || (!draft.trim() && !hasPendingMedia) || sending || conversation?.windowOpen === false
   }, [activeAccount, channel, conversation?.windowOpen, draft, mediaFile, mediaUrl, recordedAudio, sending])
-
-  const selectedAccount = useMemo(() => channels[channel].find((account) => String(account.id) === String(accountId)) || null, [accountId, channel, channels])
-  const activeAccount = switchingDevice ? selectedAccount : lockedAccount || selectedAccount
-  const canSwitchDevice = Boolean(lockedAccount && channel === 'official' && conversation?.windowOpen === false)
-  const showDeviceSelector = !lockedAccount || switchingDevice
 
   useEffect(() => { conversationRef.current = conversation }, [conversation])
 
