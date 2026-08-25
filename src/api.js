@@ -275,7 +275,7 @@ export async function sendMedia({ channel, phone, accountId, fileUrl = '', fileB
   const body = {
     account_id: accountId,
     telefone: normalizedPhone,
-    ...(official ? { ...(fileUrl ? { arquivo_url: fileUrl } : { arquivo_base64: fileBase64 }), ...(name ? { nome: name } : {}), ...(mime ? { mime } : {}), ...(caption ? { legenda: caption.slice(0, 1024) } : {}) } : { arquivo_url: fileUrl, ...(mime ? { tipo: mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document' } : {}), ...(name ? { nome: name } : {}), ...(caption ? { texto: caption.slice(0, 4096) } : {}) }),
+    ...(official ? { ...(fileUrl ? { arquivo_url: fileUrl } : { arquivo_base64: fileBase64 }), ...(name ? { nome: name } : {}), ...(mime ? { mime } : {}), ...(caption && !mime.startsWith('audio/') ? { legenda: caption.slice(0, 1024) } : {}) } : { arquivo_url: fileUrl, ...(mime ? { tipo: mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document' } : {}), ...(name ? { nome: name } : {}), ...(caption ? { texto: caption.slice(0, 4096) } : {}) }),
     ...(attendant?.trim() ? { atendente: attendant.trim() } : {}),
   }
   const response = await httpFetch(`${configFor(channel).baseUrl}${official ? '/messages/media' : '/messages'}`, { method: 'POST', retries: 0, signal, headers: { ...headers(channel), 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
