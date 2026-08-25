@@ -48,17 +48,17 @@ app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',').map((origin) => origi
 app.use(express.json({ limit: '30mb' }))
 app.use(express.urlencoded({ extended: true, limit: '32kb' }))
 
-async function convertWebmAudioToOgg(body) {
+async function convertAudioToOgg(body) {
   const mime = String(body?.mime || '').toLowerCase()
   const encoded = String(body?.arquivo_base64 || '')
-  if (!mime.startsWith('audio/webm') || !encoded) return body
+  if (!mime.startsWith('audio/') || mime.startsWith('audio/ogg') || !encoded) return body
   if (!ffmpegPath) throw new Error('Conversor de áudio indisponível no servidor.')
 
   const base64 = encoded.replace(/^data:[^;]+;base64,/, '')
   const input = Buffer.from(base64, 'base64')
   if (!input.length) throw new Error('O áudio gravado está vazio ou inválido.')
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'wpphub-audio-'))
-  const inputPath = path.join(temporaryDirectory, 'input.webm')
+  const inputPath = path.join(temporaryDirectory, 'input-audio')
   const outputPath = path.join(temporaryDirectory, 'output.ogg')
   try {
     await writeFile(inputPath, input)
@@ -89,7 +89,7 @@ app.use('/official-api', async (request, response) => {
   if (request.get('content-type')) headers['Content-Type'] = request.get('content-type')
   let body = request.body
   try {
-    if (request.path === '/messages/media') body = await convertWebmAudioToOgg(body)
+    if (request.path === '/messages/media') body = await convertAudioToOgg(body)
   } catch (error) {
     return response.status(422).json({ error: error.message })
   }
