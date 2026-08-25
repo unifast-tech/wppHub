@@ -33,6 +33,13 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
+function messageFallback(message) {
+  if (['documento', 'document'].includes(message?.kind)) return 'Documento enviado'
+  if (['audio', 'audio_message'].includes(message?.kind)) return 'Áudio enviado'
+  if (['imagem', 'image'].includes(message?.kind)) return 'Imagem enviada'
+  return 'Mensagem sem conteúdo textual'
+}
+
 function accountLabel(account) {
   return account?.name || account?.nome || account?.numero || account?.phone || `Dispositivo ${account?.id || ''}`
 }
@@ -200,14 +207,14 @@ function MessageList({ conversation, channel }) {
 
   return <div className="messages bitrix-messages" ref={messagesRef}>
     {!conversation.messages.length && <div className="empty-state"><div className="empty-icon"><MessageCircle size={28} /></div><h2>Nenhuma mensagem ainda</h2><p>A primeira mensagem enviada criará a conversa neste dispositivo.</p></div>}
-    {conversation.messages.map((message) => <div className={`message-row ${message.direction}`} key={message.id}>
+    {conversation.messages.map((message) => { if (!message.text && !message.attachment) message.text = messageFallback(message); return <div className={`message-row ${message.direction}`} key={message.id}>
       <div className="bubble">
         {message.attachment && <MessageAttachment attachment={message.attachment} channel={channel} />}
         {(message.text || !message.attachment) && <p>{message.text || 'Mensagem sem conteúdo textual'}</p>}
         <span className="meta">{formatTime(message.timestamp)}</span>
         {message.reaction && <span className="message-reaction" title="Reação à mensagem">{message.reaction}</span>}
       </div>
-    </div>)}
+    </div> })}
   </div>
 }
 
@@ -242,6 +249,14 @@ export default function BitrixDeal() {
   const fileInputRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const recordingChunksRef = useRef([])
+
+  useEffect(() => {
+    const input = fileInputRef.current
+    if (!input) return undefined
+    const nativeClick = input.click.bind(input)
+    input.click = channel === 'official' ? nativeClick : () => setMediaOpen(true)
+    return () => { input.click = nativeClick }
+  }, [channel])
 
   const selectedAccount = useMemo(() => channels[channel].find((account) => String(account.id) === String(accountId)) || null, [accountId, channel, channels])
   const activeAccount = switchingDevice ? selectedAccount : lockedAccount || selectedAccount
@@ -455,11 +470,12 @@ export default function BitrixDeal() {
       if (file && file.size > 20 * 1024 * 1024) throw new Error('O arquivo não pode ultrapassar 20 MB.')
       const fileBase64 = file ? await fileAsBase64(file) : ''
       const mime = (file?.type || (channel === 'official' ? 'audio/webm' : mediaType)).split(';')[0]
-      const result = await sendMedia({ channel, phone: conversation.contact.phone, accountId: activeAccount.id, fileUrl: mediaUrl.trim(), fileBase64, name: file?.name || 'audio.webm', mime, caption: mediaCaption })
+      const mediaCaptionText = channel === 'official' ? draft.trim() : mediaCaption
+      const result = await sendMedia({ channel, phone: conversation.contact.phone, accountId: activeAccount.id, fileUrl: channel === 'official' ? '' : mediaUrl.trim(), fileBase64, name: file?.name || 'audio.webm', mime, caption: mediaCaptionText })
       const message = { id: result.message_id || result.wa_message_id || `local-${Date.now()}`, direction: 'outbound', text: mediaCaption, timestamp: new Date().toISOString(), status: 'sent', optimistic: true, attachment: { type: file?.type?.startsWith('image/') ? 'image' : file?.type?.startsWith('video/') ? 'video' : file?.type?.startsWith('audio/') ? 'audio' : 'document', name: file?.name || 'Mídia enviada', mime: file?.type || '', ready: false, url: '' } }
       setConversation((current) => ({ ...current, messages: [...current.messages, message] }))
       setLockedAccount(activeAccount)
-      setMediaFile(null); setRecordedAudio(null); setMediaUrl(''); setMediaCaption(''); setMediaType('document'); setMediaOpen(false)
+      setMediaFile(null); setRecordedAudio(null); setMediaUrl(''); setMediaCaption(''); setDraft(''); setMediaType('document'); setMediaOpen(false)
     } catch (err) { setError(err.message) } finally { setSending(false) }
   }
 
@@ -484,6 +500,9 @@ export default function BitrixDeal() {
     if (recording) { mediaRecorderRef.current?.stop(); return }
     if (!activeAccount || channel !== 'official') { setMediaOpen(true); setError('A gravação de áudio funciona pela API Oficial. Na API Não Oficial, informe uma URL pública de áudio.'); return }
     try {
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        throw new Error('MICROPHONE_UNSUPPORTED')
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const supportedMime = ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/webm;codecs=opus', 'audio/webm'].find((mime) => MediaRecorder.isTypeSupported(mime)) || ''
       if (!supportedMime || !supportedMime.startsWith('audio/ogg')) {
@@ -495,7 +514,17 @@ export default function BitrixDeal() {
       recorder.ondataavailable = (event) => { if (event.data.size) recordingChunksRef.current.push(event.data) }
       recorder.onstop = () => { stream.getTracks().forEach((track) => track.stop()); const mime = recorder.mimeType || 'audio/webm'; const extension = mime.includes('ogg') ? 'ogg' : 'webm'; setRecordedAudio(new File([new Blob(recordingChunksRef.current, { type: mime })], `audio-gravado.${extension}`, { type: mime })); setRecording(false); setMediaOpen(true) }
       mediaRecorderRef.current = recorder; recorder.start(); setRecording(true); setMediaOpen(true)
-    } catch { setError('Não foi possível acessar o microfone.') }
+    } catch (error) {
+      const messages = {
+        MICROPHONE_UNSUPPORTED: 'O microfone exige HTTPS e um navegador com suporte a gravação. Abra o sistema pelo endereço HTTPS do Railway.',
+        NotAllowedError: 'O acesso ao microfone foi bloqueado. Permita o microfone para este site no cadeado da barra de endereço e tente novamente.',
+        SecurityError: 'O navegador bloqueou o microfone por segurança. Verifique se o Bitrix e o WppHub estão abertos em HTTPS.',
+        NotFoundError: 'Nenhum microfone foi encontrado neste computador.',
+        NotReadableError: 'O microfone está ocupado por outro aplicativo ou não pôde ser inicializado.',
+        OverconstrainedError: 'O microfone disponível não atende às configurações solicitadas.',
+      }
+      setError(messages[error?.name] || 'Não foi possível acessar o microfone. Verifique as permissões do navegador e tente novamente.')
+    }
   }
 
   function handleDraftKeyDown(event) {

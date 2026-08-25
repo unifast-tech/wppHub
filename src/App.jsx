@@ -175,6 +175,13 @@ function messagePreview(message) {
   return message?.text || 'Mensagem sem conteúdo textual'
 }
 
+function messageFallback(message) {
+  if (['documento', 'document'].includes(message?.kind)) return 'Documento enviado'
+  if (['audio', 'audio_message'].includes(message?.kind)) return 'Áudio enviado'
+  if (['imagem', 'image'].includes(message?.kind)) return 'Imagem enviada'
+  return 'Mensagem sem conteúdo textual'
+}
+
 function LinkifiedText({ text }) {
   if (!text) return null
   const parts = text.split(/((?:https?:\/\/|www\.)[^\s]+)/gi)
@@ -196,6 +203,7 @@ function LegacyConversationMessages({ thread, messagesRef }) {
     {messages.map((message, index) => {
       const currentDay = formatDateLabel(message.timestamp)
       const previousDay = index ? formatDateLabel(messages[index - 1].timestamp) : ''
+      if (!message.text && !message.attachment) message.text = messageFallback(message)
       return <Fragment key={message.id}>
         {currentDay !== previousDay && <div className="date-chip">{currentDay}</div>}
         <div className={`message-row ${message.direction}`}>

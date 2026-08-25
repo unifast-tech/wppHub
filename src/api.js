@@ -31,7 +31,8 @@ const demoMessages = [
 function normalizeMessage(message, index) {
   const rawDirection = message.direcao ?? message.direction ?? message.type ?? message.fromMe ?? message.from_me
   const outbound = rawDirection === true || ['enviada', 'outbound', 'sent', 'outgoing', 'from_me'].includes(String(rawDirection).toLowerCase())
-  const isReaction = String(message.tipo ?? message.type ?? '').toLowerCase() === 'reacao'
+  const messageKind = String(message.tipo ?? message.type ?? '').toLowerCase()
+  const isReaction = messageKind === 'reacao'
   const reactionTarget = message.reagiu_a ?? message.reaction ?? null
   const rawAttachment = message.anexo ?? message.attachment ?? null
   return {
@@ -40,6 +41,7 @@ function normalizeMessage(message, index) {
     text: isReaction ? '' : message.texto ?? message.text ?? message.body ?? message.content ?? message.message ?? '',
     timestamp: message.em ?? message.timestamp ?? message.createdAt ?? message.created_at ?? message.date ?? null,
     status: message.status ?? (outbound ? 'sent' : 'read'),
+    kind: messageKind,
     isReaction,
     reaction: isReaction ? (message.texto ?? message.text ?? '') : '',
     reactionTargetId: isReaction ? String(reactionTarget?.id ?? reactionTarget?.messageId ?? reactionTarget?.message_id ?? '') : '',

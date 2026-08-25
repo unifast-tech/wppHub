@@ -124,8 +124,13 @@ h1 { font: 800 clamp(28px, 4vw, 40px) 'Manrope', sans-serif; letter-spacing: -1.
 .media-action.recording { color: white; border-color: #b84d4d; background: #b84d4d; animation: pulse-recording 1s infinite; }
 .media-panel { display: grid; gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid #cfe0d5; border-radius: 11px; background: #f5faf7; }
 .media-panel::before { content: 'Escolha uma única forma de envio: arquivo local ou URL pública.'; display: block; color: #315b49; font-size: 10px; font-weight: 700; }
-.media-channel-official .media-panel::before { content: 'API Oficial: selecione um arquivo local ou informe uma URL pública. Não é necessário preencher os dois.'; }
+.media-channel-official .media-panel::before { content: 'API Oficial: selecione o arquivo local que será enviado.'; }
 .media-channel-hub .media-panel::before { content: 'WhatsApp Hub: informe uma URL pública HTTPS. Arquivos locais não são enviados por este canal.'; }
+.media-channel-official .media-panel > input:first-of-type { display: none; }
+.media-channel-hub .media-panel > input[readonly] { display: none; }
+.media-channel-official .media-panel > small:last-child { font-size: 0; }
+.media-channel-official .media-panel textarea { display: none; }
+.media-channel-official .media-panel > small:last-child::after { content: 'Digite a mensagem no campo de texto abaixo; ela será enviada junto com o arquivo.'; font-size: 9px; }
 .media-panel-title { display: flex; align-items: center; justify-content: space-between; color: #176f49; font-size: 12px; }
 .media-panel-title button { display: grid; place-items: center; border: 0; color: #718079; background: transparent; cursor: pointer; }
 .media-panel input, .media-panel textarea, .media-panel select { width: 100%; padding: 9px 10px; border: 1px solid #ccd7d1; border-radius: 8px; color: #26332d; background: white; font-size: 11px; outline: 0; }
