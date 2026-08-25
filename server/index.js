@@ -51,7 +51,7 @@ app.use(express.urlencoded({ extended: true, limit: '32kb' }))
 async function convertAudioToOgg(body) {
   const mime = String(body?.mime || '').toLowerCase()
   const encoded = String(body?.arquivo_base64 || '')
-  if (!mime.startsWith('audio/') || mime.startsWith('audio/ogg') || !encoded) return body
+  if (!mime.startsWith('audio/webm') || !encoded) return body
   if (!ffmpegPath) throw new Error('Conversor de áudio indisponível no servidor.')
 
   const base64 = encoded.replace(/^data:[^;]+;base64,/, '')

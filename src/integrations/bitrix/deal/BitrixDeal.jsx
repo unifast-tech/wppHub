@@ -291,7 +291,7 @@ export default function BitrixDeal() {
 
   const selectedAccount = useMemo(() => channels[channel].find((account) => String(account.id) === String(accountId)) || null, [accountId, channel, channels])
   const activeAccount = switchingDevice ? selectedAccount : lockedAccount || selectedAccount
-  const canSwitchDevice = Boolean(lockedAccount && channel === 'official' && conversation?.windowOpen === false)
+  const canSwitchDevice = Boolean(lockedAccount)
   const showDeviceSelector = !lockedAccount || switchingDevice
 
   useEffect(() => {
@@ -438,6 +438,15 @@ export default function BitrixDeal() {
       const hasHistory = nextConversation.messages.length > 0
       setLockedAccount(hasHistory ? account : null)
       setSwitchingDevice(!hasHistory)
+      if (hasHistory) {
+        recordActivity({ eventType: 'conversation_selected', channel: nextChannel, accountId: account.id, accountName: accountLabel(account), bitrixDealId: context.dealId })
+        await saveConversationLink(context.dealId, {
+          contactId: context.contactId,
+          phone: nextConversation.contact.phone,
+          channel: nextChannel,
+          accountId: account.id,
+        })
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -492,6 +501,7 @@ export default function BitrixDeal() {
       const message = { id: result.message_id || `local-${Date.now()}`, direction: 'outbound', text, timestamp: new Date().toISOString(), status: 'sent', optimistic: true }
       setConversation((current) => ({ ...current, messages: [...current.messages, message] }))
       setLockedAccount(activeAccount)
+      setSwitchingDevice(false)
       setDraft('')
     } catch (err) {
       setError(err.message)
@@ -522,6 +532,7 @@ export default function BitrixDeal() {
       const message = { id: result.message_id || result.wa_message_id || `local-${Date.now()}`, direction: 'outbound', text: mediaCaption, timestamp: new Date().toISOString(), status: 'sent', optimistic: true, attachment: { type: file?.type?.startsWith('image/') ? 'image' : file?.type?.startsWith('video/') ? 'video' : file?.type?.startsWith('audio/') ? 'audio' : 'document', name: file?.name || 'Mídia enviada', mime: file?.type || '', ready: false, url: '' } }
       setConversation((current) => ({ ...current, messages: [...current.messages, message] }))
       setLockedAccount(activeAccount)
+      setSwitchingDevice(false)
       setMediaFile(null); setRecordedAudio(null); setMediaUrl(''); setMediaCaption(''); setDraft(''); setMediaType('document'); setMediaOpen(false)
     } catch (err) { setError(err.message) } finally { setSending(false) }
   }
@@ -538,6 +549,7 @@ export default function BitrixDeal() {
       const text = String(template.texto || '').replaceAll('{{1}}', firstName)
       setConversation((current) => ({ ...current, windowOpen: true, messages: [...current.messages, { id: result.wa_message_id || `template-${Date.now()}`, direction: 'outbound', text, timestamp: new Date().toISOString(), status: 'sent', optimistic: true }] }))
       setLockedAccount(activeAccount)
+      setSwitchingDevice(false)
       setTemplates([])
       setSelectedTemplate('')
     } catch (err) { setError(err.message) } finally { setSending(false) }
@@ -551,7 +563,7 @@ export default function BitrixDeal() {
         throw new Error('MICROPHONE_UNSUPPORTED')
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const supportedMime = ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/webm;codecs=opus', 'audio/webm'].find((mime) => MediaRecorder.isTypeSupported(mime)) || ''
+      const supportedMime = ['audio/mp4', 'audio/mpeg', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/webm;codecs=opus', 'audio/webm'].find((mime) => MediaRecorder.isTypeSupported(mime)) || ''
       if (!supportedMime) {
         stream.getTracks().forEach((track) => track.stop())
         const formatError = new Error('AUDIO_FORMAT_UNSUPPORTED')
