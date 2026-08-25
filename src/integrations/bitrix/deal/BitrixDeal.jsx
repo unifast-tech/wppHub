@@ -61,6 +61,11 @@ function MessageAttachment({ attachment, channel }) {
 
   useEffect(() => {
     if (!supported || !attachment.url || attachment.ready === false) return undefined
+    if (/^https?:\/\//i.test(attachment.url)) {
+      setSource(attachment.url)
+      setFailed(false)
+      return undefined
+    }
     const controller = new AbortController()
     let objectUrl = ''
     setSource('')
@@ -258,6 +263,13 @@ export default function BitrixDeal() {
     return () => { input.click = nativeClick }
   }, [channel])
 
+  useEffect(() => {
+    const submitButton = document.querySelector(`.media-channel-${channel} button[type="submit"]`)
+    if (!submitButton) return
+    const hasPendingMedia = Boolean(mediaFile || recordedAudio || (channel !== 'official' && mediaUrl.trim()))
+    submitButton.disabled = !activeAccount || (!draft.trim() && !hasPendingMedia) || sending || conversation?.windowOpen === false
+  }, [activeAccount, channel, conversation?.windowOpen, draft, mediaFile, mediaUrl, recordedAudio, sending])
+
   const selectedAccount = useMemo(() => channels[channel].find((account) => String(account.id) === String(accountId)) || null, [accountId, channel, channels])
   const activeAccount = switchingDevice ? selectedAccount : lockedAccount || selectedAccount
   const canSwitchDevice = Boolean(lockedAccount && channel === 'official' && conversation?.windowOpen === false)
@@ -433,6 +445,11 @@ export default function BitrixDeal() {
 
   async function handleSend(event) {
     event.preventDefault()
+    const hasPendingMedia = Boolean(mediaFile || recordedAudio || (channel !== 'official' && mediaUrl.trim()))
+    if (hasPendingMedia) {
+      await handleMediaSend(event)
+      return
+    }
     if (!activeAccount || !conversation || !draft.trim() || sending || deviceLoading) return
     const text = draft.trim()
     setSending(true)
@@ -507,7 +524,9 @@ export default function BitrixDeal() {
       const supportedMime = ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/webm;codecs=opus', 'audio/webm'].find((mime) => MediaRecorder.isTypeSupported(mime)) || ''
       if (!supportedMime || !supportedMime.startsWith('audio/ogg')) {
         stream.getTracks().forEach((track) => track.stop())
-        throw new Error('Este navegador não consegue gravar áudio em OGG, formato aceito pela API Oficial.')
+        const formatError = new Error('AUDIO_FORMAT_UNSUPPORTED')
+        formatError.code = 'AUDIO_FORMAT_UNSUPPORTED'
+        throw formatError
       }
       const recorder = new MediaRecorder(stream, supportedMime ? { mimeType: supportedMime } : undefined)
       recordingChunksRef.current = []
@@ -517,13 +536,16 @@ export default function BitrixDeal() {
     } catch (error) {
       const messages = {
         MICROPHONE_UNSUPPORTED: 'O microfone exige HTTPS e um navegador com suporte a gravação. Abra o sistema pelo endereço HTTPS do Railway.',
+        AUDIO_FORMAT_UNSUPPORTED: 'O navegador não grava em OGG, formato de áudio aceito pela API Oficial. Use outro navegador compatível ou envie um arquivo de áudio OGG pelo clipe.',
         NotAllowedError: 'O acesso ao microfone foi bloqueado. Permita o microfone para este site no cadeado da barra de endereço e tente novamente.',
         SecurityError: 'O navegador bloqueou o microfone por segurança. Verifique se o Bitrix e o WppHub estão abertos em HTTPS.',
         NotFoundError: 'Nenhum microfone foi encontrado neste computador.',
         NotReadableError: 'O microfone está ocupado por outro aplicativo ou não pôde ser inicializado.',
         OverconstrainedError: 'O microfone disponível não atende às configurações solicitadas.',
       }
-      setError(messages[error?.name] || 'Não foi possível acessar o microfone. Verifique as permissões do navegador e tente novamente.')
+      const errorKey = error?.code || error?.name
+      const message = messages[errorKey] || (error?.message && error.message !== error.name ? error.message : '')
+      setError(message || 'Não foi possível acessar o microfone. Verifique as permissões do navegador e tente novamente.')
     }
   }
 

@@ -131,6 +131,7 @@ h1 { font: 800 clamp(28px, 4vw, 40px) 'Manrope', sans-serif; letter-spacing: -1.
 .media-channel-official .media-panel > small:last-child { font-size: 0; }
 .media-channel-official .media-panel textarea { display: none; }
 .media-channel-official .media-panel > small:last-child::after { content: 'Digite a mensagem no campo de texto abaixo; ela será enviada junto com o arquivo.'; font-size: 9px; }
+.media-panel .media-send-button { display: none; }
 .media-panel-title { display: flex; align-items: center; justify-content: space-between; color: #176f49; font-size: 12px; }
 .media-panel-title button { display: grid; place-items: center; border: 0; color: #718079; background: transparent; cursor: pointer; }
 .media-panel input, .media-panel textarea, .media-panel select { width: 100%; padding: 9px 10px; border: 1px solid #ccd7d1; border-radius: 8px; color: #26332d; background: white; font-size: 11px; outline: 0; }

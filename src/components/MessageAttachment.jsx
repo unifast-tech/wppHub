@@ -20,6 +20,11 @@ export default function MessageAttachment({ attachment, channel }) {
 
   useEffect(() => {
     if (!supported || !attachment.url || attachment.ready === false) return undefined
+    if (/^https?:\/\//i.test(attachment.url)) {
+      setSource(attachment.url)
+      setFailed(false)
+      return undefined
+    }
     const controller = new AbortController()
     let objectUrl = ''
     setSource('')
