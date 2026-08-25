@@ -750,7 +750,7 @@ export default function App() {
                 <span>{conversationStatus[selectedInboxItem?.status] || selectedInboxItem?.status || 'Na fila'}{selectedInboxItem?.attending ? ` · ${selectedInboxItem.attending}` : ''}</span>
               </div>
             </header>
-            <ConversationMessages thread={inboxThread} messagesRef={inboxMessagesRef} />
+            <ConversationMessagesView thread={inboxThread} messagesRef={inboxMessagesRef} />
             <form className="composer" onSubmit={handleInboxSend}>
               {inboxSendError && <div className="send-error" role="alert"><X size={14} />{inboxSendError}</div>}
               <div className="composer-row">
