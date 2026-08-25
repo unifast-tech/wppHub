@@ -39,7 +39,10 @@ if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
 }
 
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',').map((origin) => origin.trim()) || true }))
-app.use(express.json({ limit: '32kb' }))
+// A API Oficial aceita arquivos de até 20 MB em Base64. Como Base64 aumenta
+// o tamanho do conteúdo em aproximadamente 33%, o proxy precisa aceitar um
+// corpo JSON maior para conseguir encaminhar esses arquivos.
+app.use(express.json({ limit: '30mb' }))
 app.use(express.urlencoded({ extended: true, limit: '32kb' }))
 
 app.use('/official-api', async (request, response) => {

@@ -73,7 +73,10 @@ export async function httpFetch(input, options = {}) {
 
 export async function readHttpError(response, fallback = 'A API retornou um erro.') {
   const payload = await response.json().catch(() => null)
-  const error = new Error(payload?.error || payload?.message || fallback)
+  const defaultMessage = response.status === 413
+    ? 'O arquivo é muito grande para a API aceitar. Tente um arquivo menor ou envie uma URL pública.'
+    : fallback
+  const error = new Error(payload?.error || payload?.message || defaultMessage)
   error.code = payload?.code
   error.status = response.status
   error.details = payload

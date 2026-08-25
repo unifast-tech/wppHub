@@ -486,6 +486,10 @@ export default function BitrixDeal() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const supportedMime = ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/webm;codecs=opus', 'audio/webm'].find((mime) => MediaRecorder.isTypeSupported(mime)) || ''
+      if (!supportedMime || !supportedMime.startsWith('audio/ogg')) {
+        stream.getTracks().forEach((track) => track.stop())
+        throw new Error('Este navegador não consegue gravar áudio em OGG, formato aceito pela API Oficial.')
+      }
       const recorder = new MediaRecorder(stream, supportedMime ? { mimeType: supportedMime } : undefined)
       recordingChunksRef.current = []
       recorder.ondataavailable = (event) => { if (event.data.size) recordingChunksRef.current.push(event.data) }
@@ -519,7 +523,7 @@ export default function BitrixDeal() {
       </div>
       <MessageList conversation={conversation || { messages: [] }} channel={channel} />
       {error && <div className="error bitrix-error" role="alert"><X size={15} />{error}</div>}
-      <form className="composer bitrix-composer" onSubmit={handleSend}>
+      <form className={`composer bitrix-composer media-channel-${channel}`} onSubmit={handleSend}>
         <input ref={fileInputRef} type="file" hidden accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={(event) => { setMediaFile(event.target.files?.[0] || null); setRecordedAudio(null); setMediaOpen(true) }} />
         {channel === 'official' && conversation?.windowOpen === false && <div className="template-panel"><strong>Janela de 24 horas fechada</strong><p>Envie um modelo aprovado para iniciar uma nova conversa com este contato.</p>{templatesLoading ? <span className="template-loading">Carregando modelos...</span> : templates.length ? <><select value={selectedTemplate} onChange={(event) => setSelectedTemplate(event.target.value)}><option value="">Selecione um modelo</option>{templates.map((template) => <option key={template.nome} value={template.nome}>{template.nome}</option>)}</select><div className="template-preview">{String(templates.find((template) => template.nome === selectedTemplate)?.texto || '').replaceAll('{{1}}', String(context?.contactName || '').trim().split(/\s+/)[0])}</div><button type="button" className="template-send-button" disabled={!selectedTemplate || sending} onClick={handleTemplateSend}>Enviar modelo e iniciar conversa</button></> : <span className="template-loading">Nenhum modelo disparável disponível para esta conta.</span>}</div>}
         {mediaOpen && <div className="media-panel"><div className="media-panel-title"><strong>Enviar mídia</strong><button type="button" onClick={() => setMediaOpen(false)}><X size={15} /></button></div><input value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder={channel === 'official' ? 'URL pública ou selecione um arquivo' : 'URL pública https://...'} /><input value={mediaFile?.name || recordedAudio?.name || ''} readOnly placeholder="Nenhum arquivo local selecionado" />{channel !== 'official' && <select value={mediaType} onChange={(event) => setMediaType(event.target.value)}><option value="image">Imagem</option><option value="video">Vídeo</option><option value="audio">Áudio</option><option value="document">Documento</option></select>}<textarea value={mediaCaption} onChange={(event) => setMediaCaption(event.target.value.slice(0, channel === 'official' ? 1024 : 4096))} placeholder="Legenda (opcional)" rows="2" /><button type="button" className="media-send-button" onClick={handleMediaSend} disabled={sending || (!mediaUrl.trim() && !mediaFile && !recordedAudio)}>Enviar mídia</button><small>{channel === 'official' ? 'API Oficial: arquivo local ou URL pública.' : 'API Não Oficial: informe uma URL pública https.'}</small></div>}
